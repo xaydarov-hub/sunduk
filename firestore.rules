@@ -1,0 +1,213 @@
+rules_version = '2';
+
+// ============================================================
+// SUNDuk — Firestore xavfsizlik qoidalari
+//
+// Rollar:  admin  — hamma narsa
+//          bar    — buyurtma navbati, to'lov qabul qilish, bar savdosi
+//          waiter — xona ochish/uzaytirish, buyurtma qo'shish, "yetkazildi" belgilash
+//
+// Ofitsiant HECH QACHON: bekor qila olmaydi, narx/xona/mahsulot o'zgartira olmaydi,
+// to'lov qabul qila olmaydi, soatni kamaytira olmaydi. Bu qoidalar serverda majburlanadi —
+// brauzer yoki dastur kodini o'zgartirish bilan chetlab o'tib bo'lmaydi.
+// ============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- yordamchi funksiyalar ----------
+    function signedIn() { return request.auth != null; }
+    function myProfilePath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function activeStaff() { return signedIn() && exists(myProfilePath()) && get(myProfilePath()).data.isActive == true; }
+    function role() { return get(myProfilePath()).data.role; }
+    function isAdmin() { return activeStaff() && role() == 'admin'; }
+    function isBar() { return activeStaff() && role() == 'bar'; }
+    function isWaiter() { return activeStaff() && role() == 'waiter'; }
+    function isBarOrAdmin() { return isAdmin() || isBar(); }
+
+    // faqat shu maydonlar o'zgargan bo'lishi kerak
+    function changedOnly(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // Birinchi sozlash: tizim hali sozlanmagan va yangi foydalanuvchi o'zini admin qilib yaratyapti
+    function notInitialized() { return !exists(/databases/$(database)/documents/meta/public); }
+    function bootstrapping() {
+      return signedIn() && notInitialized()
+        && getAfter(myProfilePath()).data.role == 'admin'
+        && getAfter(myProfilePath()).data.isActive == true;
+    }
+
+    // Buyurtma holati faqat oldinga: new → accepted → preparing → ready → served
+    function validOrderStep() {
+      let from = resource.data.status;
+      let to = request.resource.data.status;
+      return (isBar() && (
+                (from == 'new' && to in ['accepted', 'preparing', 'ready', 'served'])
+             || (from == 'accepted' && to in ['preparing', 'ready', 'served'])
+             || (from == 'preparing' && to in ['ready', 'served'])
+             || (from == 'ready' && to == 'served')))
+          || (isWaiter() && from == 'ready' && to == 'served');
+    }
+
+    // ---------- ommaviy "tizim sozlanganmi" belgisi ----------
+    match /meta/{id} {
+      allow get: if id == 'public';
+      allow create: if id == 'public' && bootstrapping();
+      allow update, delete: if false;
+    }
+
+    // ---------- xodimlar ----------
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        || (bootstrapping() && request.auth.uid == uid && request.resource.data.role == 'admin');
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ---------- sozlamalar ----------
+    match /settings/{id} {
+      allow read: if activeStaff();
+      allow create: if isAdmin() || bootstrapping();
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ---------- ketma-ket raqamlar (buyurtma, chek) ----------
+    match /counters/{id} {
+      allow read: if activeStaff();
+      allow create: if isAdmin() || bootstrapping();
+      allow update: if isAdmin()
+        || (isWaiter() && changedOnly(['order'])
+            && request.resource.data.order == resource.data.order + 1)
+        || (isBar() && changedOnly(['order', 'receipt'])
+            && (request.resource.data.order == resource.data.order || request.resource.data.order == resource.data.order + 1)
+            && (request.resource.data.receipt == resource.data.receipt || request.resource.data.receipt == resource.data.receipt + 1));
+      allow delete: if false;
+    }
+
+    // ---------- xonalar ----------
+    match /rooms/{id} {
+      allow read: if activeStaff();
+      allow create: if isAdmin() || bootstrapping();
+      allow update: if isAdmin()
+        // ofitsiant: bo'sh xonani band qiladi (sessiya bilan birga) yoki tozalangan xonani bo'shatadi
+        || (isWaiter() && changedOnly(['status', 'currentSessionId'])
+            && ((resource.data.status == 'available' && request.resource.data.status == 'occupied'
+                 && existsAfter(/databases/$(database)/documents/sessions/$(request.resource.data.currentSessionId)))
+                || (resource.data.status == 'cleaning' && request.resource.data.status == 'available')))
+        // kassir: to'lovdan keyin xonani tozalashga o'tkazadi
+        || (isBar() && changedOnly(['status', 'currentSessionId'])
+            && ((resource.data.status == 'occupied' && request.resource.data.status in ['cleaning', 'available'])
+                || (resource.data.status == 'cleaning' && request.resource.data.status == 'available')));
+      allow delete: if isAdmin();
+    }
+
+    // ---------- menyu ----------
+    match /categories/{id} {
+      allow read: if activeStaff();
+      allow create: if isAdmin() || bootstrapping();
+      allow update, delete: if isAdmin();
+    }
+
+    match /products/{id} {
+      allow read: if activeStaff();
+      allow create: if isAdmin() || bootstrapping();
+      // ofitsiant va kassir faqat qoldiqni KAMAYTIRA oladi (sotuv)
+      allow update: if isAdmin()
+        || ((isWaiter() || isBar()) && changedOnly(['currentStock'])
+            && request.resource.data.currentStock >= 0
+            && request.resource.data.currentStock <= resource.data.currentStock);
+      allow delete: if isAdmin();
+    }
+
+    // ---------- xona sessiyalari ----------
+    match /sessions/{id} {
+      allow read: if activeStaff();
+      // ochish: narx xona narxiga teng bo'lishi shart (ofitsiant narxni o'zgartira olmaydi)
+      allow create: if (isWaiter() || isAdmin())
+        && request.resource.data.status == 'active'
+        && request.resource.data.waiterId == request.auth.uid
+        && request.resource.data.bookedHours is int
+        && request.resource.data.bookedHours >= 1 && request.resource.data.bookedHours <= 24
+        && request.resource.data.itemsTotal == 0 && request.resource.data.paidTotal == 0
+        && request.resource.data.hourlyPriceSnapshot == get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.hourlyPrice
+        && !('finalBill' in request.resource.data) && !('cancelledAt' in request.resource.data);
+      allow update: if isAdmin()
+        // ofitsiant: soatni faqat KO'PAYTIRADI, buyurtma summasini faqat oshiradi
+        || (isWaiter() && resource.data.status == 'active' && changedOnly(['bookedHours', 'itemsTotal'])
+            && request.resource.data.bookedHours >= resource.data.bookedHours
+            && request.resource.data.bookedHours <= 24
+            && request.resource.data.itemsTotal >= resource.data.itemsTotal)
+        // kassir: to'lov, chegirma va yopish
+        || (isBar() && resource.data.status == 'active'
+            && changedOnly(['paidTotal', 'discount', 'status', 'endTime', 'finalBill'])
+            && request.resource.data.paidTotal >= resource.data.paidTotal
+            && (request.resource.data.status == 'active'
+                || (request.resource.data.status == 'paid' && request.resource.data.finalBill.total <= request.resource.data.paidTotal)));
+      allow delete: if false;
+    }
+
+    // ---------- buyurtmalar ----------
+    match /orders/{id} {
+      allow read: if activeStaff();
+      allow create:
+        // xona buyurtmasi (ofitsiant yoki admin)
+        if ((isWaiter() || isAdmin())
+            && request.resource.data.source == 'room'
+            && request.resource.data.status == 'new'
+            && request.resource.data.waiterId == request.auth.uid
+            && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.status == 'active'
+            && request.resource.data.items.size() >= 1 && request.resource.data.items.size() <= 60
+            && !('cancelledAt' in request.resource.data))
+        // bar savdosi (kassir yoki admin) — darhol "yetkazilgan"
+        || ((isBar() || isAdmin())
+            && request.resource.data.source == 'bar'
+            && request.resource.data.status == 'served'
+            && request.resource.data.barStaffId == request.auth.uid);
+      // bekor qilish va pozitsiyani o'zgartirish — FAQAT admin
+      allow update: if isAdmin()
+        || ((isBar() || isWaiter()) && changedOnly(['status', 'updatedAt', 'servedAt']) && validOrderStep());
+      allow delete: if false;
+    }
+
+    // ---------- to'lovlar (ofitsiant ko'ra olmaydi, o'zgartirib ham bo'lmaydi) ----------
+    match /payments/{id} {
+      allow read: if isBarOrAdmin();
+      allow create: if isBarOrAdmin()
+        && request.resource.data.processedBy == request.auth.uid
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.amount is number && request.resource.data.amount > 0;
+      allow update, delete: if false;
+    }
+
+    // ---------- bildirishnomalar ----------
+    match /notifications/{id} {
+      allow read: if activeStaff()
+        && (resource.data.targetRole == role() || resource.data.targetRole == 'all');
+      allow create: if activeStaff();
+      allow update: if activeStaff() && changedOnly(['readBy'])
+        && (resource.data.targetRole == role() || resource.data.targetRole == 'all');
+      allow delete: if false;
+    }
+
+    // ---------- faoliyat jurnali (faqat qo'shiladi, o'zgartirib bo'lmaydi) ----------
+    match /activityLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if activeStaff() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ---------- ombor harakatlari ----------
+    match /inventoryMovements/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        || ((isWaiter() || isBar()) && request.resource.data.type == 'out' && request.resource.data.createdBy == request.auth.uid);
+      allow update, delete: if false;
+    }
+
+    // ---------- faqat admin ----------
+    match /customers/{id} { allow read, write: if isAdmin(); }
+    match /bookings/{id} { allow read, write: if isAdmin(); }
+    match /expenses/{id} { allow read, write: if isAdmin(); }
+  }
+}

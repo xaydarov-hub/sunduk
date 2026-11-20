@@ -1,0 +1,15 @@
+node_modules/
+.next/
+.next-dev/
+out/
+.firebase/
+.vercel
+.vscode/
+*.log
+tsconfig.tsbuildinfo
+
+# Sirlar (Vercel tokeni va h.k.) — hech qachon repo'ga tushmasin
+.env
+.env.local
+.env.*.local
+!.env.example
