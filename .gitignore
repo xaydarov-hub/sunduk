@@ -13,3 +13,6 @@ tsconfig.tsbuildinfo
 .env.local
 .env.*.local
 !.env.example
+
+# Local Netlify folder
+.netlify

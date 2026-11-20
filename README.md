@@ -2,7 +2,7 @@
 
 Bar va VIP karaoke xonalarini boshqarish tizimi: **7 ta xona**, vaqt bo'yicha hisob, ofitsiant / kassir / admin rollari, shot va 88 mm chek.
 
-**Texnologiyalar:** Next.js 14 (statik sayt) · Vercel (hosting) · Firebase Auth · Firestore (real vaqt) — hammasi bepul tarifda, bank kartasi talab qilinmaydi.
+**Texnologiyalar:** Next.js 14 (statik sayt) · Netlify (hosting) · Firebase Auth · Firestore (real vaqt) — hammasi bepul tarifda, bank kartasi talab qilinmaydi.
 
 ## Qanday ishlaydi
 
@@ -35,7 +35,7 @@ Bar va VIP karaoke xonalarini boshqarish tizimi: **7 ta xona**, vaqt bo'yicha hi
 
 ## Ishga tushirish (bir marta)
 
-Arxitektura: **Vercel** — sayt (frontend), **Firebase** — ma'lumotlar bazasi (Firestore) va kirish (Auth).
+Arxitektura: **Netlify** — sayt (frontend), **Firebase** — ma'lumotlar bazasi (Firestore) va kirish (Auth).
 
 ### 1. Firebase (baza)
 1. <https://console.firebase.google.com> → **Add project** (Analytics shart emas).
@@ -49,19 +49,16 @@ Arxitektura: **Vercel** — sayt (frontend), **Firebase** — ma'lumotlar bazasi
    npm run deploy:rules
    ```
 
-### 2. Vercel (sayt)
-1. Kirish va loyihani bog'lash:
-   ```bash
-   npx vercel login
-   npx vercel link
-   ```
-2. Muhit o'zgaruvchilarini kiriting (qiymatlar 1-qadamdagi `firebaseConfig`dan). Har biri uchun `npx vercel env add NOM production`:
+### 2. Netlify (sayt)
+Sayt GitHub repo'siga ulangan: `main` tarmog'iga har `git push` avtomatik yangi versiyani chiqaradi (`netlify.toml` tayyor).
+1. Netlify'da **Add new project → Import from Git** → shu repo. Build sozlamalari `netlify.toml`dan olinadi (`npm run build`, papka `out`).
+2. **Project configuration → Environment variables** bo'limiga 1-qadamdagi `firebaseConfig` qiymatlarini kiriting:
    `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
-3. Joylash:
+3. Qo'lda joylash (Git'siz): 
    ```bash
    npm run deploy
    ```
-   Sayt `https://<loyiha>.vercel.app` manzilida chiqadi.
+Sayt `https://<loyiha>.netlify.app` manzilida chiqadi.
 
 ### 3. Birinchi kirish
 Saytni ochganingizda **“Birinchi sozlash”** oynasi chiqadi — bosh administrator hisobini yarating. **Buni deploydan keyin darhol o'zingiz qiling**, shundan so'ng bu oyna butunlay yopiladi. Keyin Admin → Xodimlar bo'limida ofitsiant va kassirlarga login/parol bering.
@@ -69,7 +66,7 @@ Saytni ochganingizda **“Birinchi sozlash”** oynasi chiqadi — bosh administ
 ### 4. Telefonga o'rnatish
 Ofitsiant telefonida saytni oching → brauzer menyusi → **“Bosh ekranga qo'shish”**. Ilova alohida (brauzer panelisiz) ochiladi.
 
-> **Vercel Hobby (bepul) tarifi** shartlariga ko'ra faqat shaxsiy, notijorat foydalanish uchun. Bar/restoran tijorat faoliyati hisoblanadi — rasmiy ishlatish uchun Vercel Pro yoki tijoratga ruxsat beruvchi bepul hostinglar (Firebase Hosting, Cloudflare Pages) tavsiya etiladi. Loyiha ularning hammasida ishlaydi; Firebase Hosting uchun `firebase.json` tayyor: `npm run build` → `npx firebase deploy --only hosting`.
+> Loyiha oddiy statik sayt, shuning uchun istalgan hostingda ishlaydi. Netlify bepul tarifi tijorat foydalanishini taqiqlamaydi. Zaxira: Firebase Hosting uchun `firebase.json` tayyor (`npm run build` → `npx firebase deploy --only hosting`); `vercel.json` Vercel uchun.
 
 ## Lokal sinov (internetsiz, Firebase emulyatori)
 ```bash
