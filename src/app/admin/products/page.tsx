@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import Link from 'next/link';
+import { Search, Trash2 } from 'lucide-react';
 import { ModulePage } from '@/components/shared/ModulePage';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { useStore } from '@/lib/store';
@@ -17,7 +19,8 @@ interface FormState {
 
 export default function AdminProductsPage() {
   const t = useT();
-  const { products, categories, language, addProduct, updateProduct, addToast } = useStore();
+  const { products, categories, language, addProduct, updateProduct, deleteProduct, addToast } = useStore();
+  const [deleting, setDeleting] = useState<Product | null>(null);
   const empty = (): FormState => ({ name: '', nameRu: '', categoryId: categories[0]?.id || '', salePrice: 0, costPrice: 0, unit: 'dona', trackStock: false, currentStock: 0, minStock: 0 });
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -62,7 +65,20 @@ export default function AdminProductsPage() {
         </select>
       </div>
 
-      <div className="stat-card overflow-x-auto">
+      {categories.length === 0 && (
+        <div className="stat-card !border-gold-500/40 text-sm">
+          <b>{t('Avval kategoriya qo‘shing.', 'Сначала добавьте категорию.')}</b>{' '}
+          <span className="text-zinc-400">{t('Mahsulot kategoriyaga biriktiriladi (masalan: Ichimliklar, Taomlar).', 'Товар привязывается к категории (например: Напитки, Блюда).')}</span>{' '}
+          <Link href="/admin/categories/" className="font-semibold text-gold-400 hover:underline">{t('Kategoriyalarga o‘tish →', 'Перейти к категориям →')}</Link>
+        </div>
+      )}
+      {products.length === 0 && categories.length > 0 && (
+        <div className="stat-card empty-state text-sm text-zinc-400">
+          <p>{t('Menyu hali bo‘sh.', 'Меню пока пусто.')}</p>
+          <button className="btn-gold mt-4" onClick={startNew}>{t('Birinchi mahsulotni qo‘shish', 'Добавить первый товар')}</button>
+        </div>
+      )}
+      <div className="stat-card overflow-x-auto" hidden={products.length === 0}>
         <table className="data-table">
           <thead><tr><th>{t('Mahsulot', 'Товар')}</th><th>{t('Kategoriya', 'Категория')}</th><th>{t('Tannarx', 'Себестоимость')}</th><th>{t('Narx', 'Цена')}</th><th>{t('Qoldiq', 'Остаток')}</th><th /></tr></thead>
           <tbody>
@@ -77,6 +93,7 @@ export default function AdminProductsPage() {
                   <div className="flex justify-end gap-2">
                     <button className="btn-secondary !px-3 !py-1.5 text-sm" onClick={() => startEdit(product)}>{t('Tahrirlash', 'Изменить')}</button>
                     <button className={`${product.isActive ? 'btn-secondary' : 'btn-gold'} !px-3 !py-1.5 text-sm`} onClick={() => updateProduct(product.id, { isActive: !product.isActive })}>{product.isActive ? t('Yashirish', 'Скрыть') : t('Ko‘rsatish', 'Показать')}</button>
+                    <button className="rounded-lg p-2 text-red-400 hover:bg-red-500/15" aria-label={t('O‘chirish', 'Удалить')} title={t('O‘chirish', 'Удалить')} onClick={() => setDeleting(product)}><Trash2 className="h-4 w-4" /></button>
                   </div>
                 </td>
               </tr>
@@ -106,6 +123,15 @@ export default function AdminProductsPage() {
           )}
         </div>
       </Modal>
+      <ConfirmDialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => { if (deleting) { deleteProduct(deleting.id); addToast({ type: 'success', title: t('Mahsulot o‘chirildi', 'Товар удалён'), message: deleting.name }); } }}
+        title={t('Mahsulotni o‘chirish', 'Удалить товар')}
+        message={deleting ? <span><b>{deleting.name}</b><br /><span className="text-zinc-400">{t('Eski cheklar va hisobotlarga ta’sir qilmaydi. Faqat vaqtincha yashirmoqchi bo‘lsangiz, “Yashirish”ni ishlating.', 'Старые чеки и отчёты не затрагиваются. Чтобы лишь временно убрать — используйте «Скрыть».')}</span></span> : undefined}
+        confirmLabel={t('O‘chirish', 'Удалить')}
+        danger
+      />
     </ModulePage>
   );
 }

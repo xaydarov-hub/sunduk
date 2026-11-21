@@ -13,7 +13,7 @@ import { SessionClock } from '@/components/shared/SessionClock';
 
 export default function AdminDashboard() {
   const t = useT();
-  const { rooms, orders, payments, expenses, products, language, sessions, settings } = useStore();
+  const { rooms, orders, payments, expenses, products, categories, language, sessions, settings } = useStore();
   const now = useNow(1000);
   const today = localDateKey();
 
@@ -41,6 +41,17 @@ export default function AdminDashboard() {
           <p className="text-sm text-zinc-500">{t('Bugungi operatsiyalar ko‘rinishi', 'Обзор операций за сегодня')}</p>
         </div>
       </div>
+
+      {(categories.length === 0 || products.length === 0) && (
+        <section className="stat-card !border-gold-500/40">
+          <h2 className="font-semibold">{t('Boshlash uchun menyuni to‘ldiring', 'Для начала заполните меню')}</h2>
+          <ol className="mt-3 space-y-2 text-sm text-zinc-300">
+            <li className="flex items-center gap-3"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${categories.length ? 'bg-green-500 text-black' : 'bg-white/10'}`}>{categories.length ? '✓' : '1'}</span><Link href="/admin/categories/" className="hover:text-gold-400 hover:underline">{t('Kategoriyalar qo‘shing (Ichimliklar, Taomlar…)', 'Добавьте категории (Напитки, Блюда…)')}</Link></li>
+            <li className="flex items-center gap-3"><span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${products.length ? 'bg-green-500 text-black' : 'bg-white/10'}`}>{products.length ? '✓' : '2'}</span><Link href="/admin/products/" className="hover:text-gold-400 hover:underline">{t('Mahsulotlarni narxi bilan kiriting', 'Внесите товары с ценами')}</Link></li>
+            <li className="flex items-center gap-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-xs font-bold">3</span><Link href="/admin/rooms/" className="hover:text-gold-400 hover:underline">{t('Xonalar nomi va soatlik narxini tekshiring', 'Проверьте названия и почасовые цены комнат')}</Link></li>
+          </ol>
+        </section>
+      )}
 
       {waitingPayment > 0 && (
         <Link href="/admin/rooms" className="flex items-center gap-3 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200 hover:bg-red-500/15">

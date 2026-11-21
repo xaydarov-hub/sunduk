@@ -204,7 +204,11 @@ function WaiterRoomContent() {
               );
             })}
           </div>
-          {visibleProducts.length === 0 && <div className="stat-card empty-state text-sm text-zinc-500">{t('Hech narsa topilmadi', 'Ничего не найдено')}</div>}
+          {visibleProducts.length === 0 && (
+            <div className="stat-card empty-state text-sm text-zinc-500">
+              {products.length === 0 ? t('Menyu hali bo‘sh — administrator mahsulotlarni qo‘shishi kerak.', 'Меню пока пусто — администратор должен добавить товары.') : t('Hech narsa topilmadi', 'Ничего не найдено')}
+            </div>
+          )}
         </section>
 
         {/* Xona hisobi */}

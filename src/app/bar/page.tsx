@@ -86,6 +86,7 @@ export default function BarPosPage() {
           <button onClick={() => setCategory('all')} className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold ${category === 'all' ? 'bg-gold-500 text-black' : 'bg-white/5 text-zinc-300'}`}>{t('Barchasi', 'Все')}</button>
           {activeCategories.map(c => <button key={c.id} onClick={() => setCategory(c.id)} className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold ${category === c.id ? 'bg-gold-500 text-black' : 'bg-white/5 text-zinc-300'}`}>{language === 'uz' ? c.name : c.nameRu}</button>)}
         </div>
+        {products.length === 0 && <div className="stat-card empty-state mb-3 text-sm text-zinc-500">{t('Menyu hali bo‘sh — administrator mahsulotlarni qo‘shishi kerak.', 'Меню пока пусто — администратор должен добавить товары.')}</div>}
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4">
           {filtered.map(p => {
             const qty = cart[p.id] || 0;

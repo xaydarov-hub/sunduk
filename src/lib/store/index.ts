@@ -14,7 +14,7 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth';
 import {
-  Query, Transaction, Unsubscribe, arrayUnion, collection, doc, getDoc, getDocs, limit,
+  Query, Transaction, Unsubscribe, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit,
   onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import {
@@ -112,6 +112,8 @@ interface AppState {
 
   // Mahsulotlar
   addProduct: (product: Omit<Product, 'id'>) => void;
+  deleteProduct: (productId: string) => void;
+  deleteCategory: (categoryId: string) => Promise<ActionResult>;
   updateProduct: (productId: string, data: Partial<Product>) => void;
   addCategory: (category: Omit<Category, 'id'>) => void;
   updateCategory: (categoryId: string, data: Partial<Category>) => void;
@@ -906,6 +908,14 @@ export const useStore = create<AppState>()((set, get) => {
     addProduct: (product) => { if (requireRole('admin')) { const id = newId('products'); write(setDoc(ref('products', id), product)); } },
     updateProduct: (productId, data) => { if (requireRole('admin')) { const patch = { ...data }; delete (patch as Partial<Product>).id; write(updateDoc(ref('products', productId), patch)); } },
     addCategory: (category) => { if (requireRole('admin')) { const id = newId('categories'); write(setDoc(ref('categories', id), category)); } },
+    deleteProduct: (productId) => { if (requireRole('admin')) write(deleteDoc(ref('products', productId))); },
+    deleteCategory: async (categoryId) => {
+      if (!requireRole('admin')) return forbidden();
+      if (get().products.some(p => p.categoryId === categoryId)) {
+        return fail('Kategoriyada mahsulotlar bor — avval ularni o‘chiring yoki boshqa kategoriyaga o‘tkazing', 'В категории есть товары — сначала удалите их или перенесите');
+      }
+      try { await deleteDoc(ref('categories', categoryId)); return { ok: true }; } catch (error) { return { ok: false, error: explain(error) }; }
+    },
     updateCategory: (categoryId, data) => { if (requireRole('admin')) { const patch = { ...data }; delete (patch as Partial<Category>).id; write(updateDoc(ref('categories', categoryId), patch)); } },
 
     // ---- Ombor (qo'lda kirim/chiqim/yaroqsiz) ----
