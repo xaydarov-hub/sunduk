@@ -4,22 +4,14 @@ import { useEffect, useState } from 'react';
 import { Printer, Save } from 'lucide-react';
 import { ModulePage } from '@/components/shared/ModulePage';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
+import { Toggle } from '@/components/ui/Toggle';
 import { useStore } from '@/lib/store';
-import { ReceiptData } from '@/lib/receipt';
+import { ReceiptData, buildSampleReceipt } from '@/lib/receipt';
 import { useT } from '@/lib/hooks';
 import { Settings } from '@/types';
 
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
 const PAPER = [58, 80, 88];
-
-function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (value: boolean) => void; label: string; hint?: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="flex w-full items-center justify-between gap-4 rounded-xl bg-white/[.03] p-4 text-left">
-      <span><span className="block text-sm font-medium">{label}</span>{hint && <span className="mt-0.5 block text-xs text-zinc-500">{hint}</span>}</span>
-      <span className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${checked ? 'bg-gold-500' : 'bg-zinc-700'}`}><span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${checked ? 'left-[1.375rem]' : 'left-0.5'}`} /></span>
-    </button>
-  );
-}
 
 export default function SettingsPage() {
   const t = useT();
@@ -42,24 +34,7 @@ export default function SettingsPage() {
     addToast({ title: t('Saqlandi', 'Сохранено'), message: t('Sozlamalar yangilandi', 'Настройки обновлены'), type: 'success' });
   };
 
-  const testPrint = () => {
-    const price = 150000;
-    setSample({
-      kind: 'receipt', number: 'RCP-00000', printedAt: new Date().toISOString(), lang: language,
-      business: { name: draft.businessName, phone: draft.businessPhone, address: draft.businessAddress, footer: draft.receiptFooter, currencySymbol: draft.currencySymbol },
-      paperWidthMm: draft.paperWidthMm, showQr: draft.showReceiptQr, taxRate: draft.taxRate, qrSeed: 'test-receipt',
-      room: { number: 'VIP 01', name: 'Premium Suite', start: new Date(Date.now() - 2 * 3600 * 1000).toISOString(), end: new Date().toISOString(), bookedHours: 2, overtimeHours: 0, billedHours: 2, hourlyPrice: price, amount: 2 * price },
-      customer: 'Test', waiter: 'Sardor Xolmatov', cashier: 'Bobur Toshmatov',
-      lines: [
-        { name: 'Heineken 0.5L', quantity: 4, unitPrice: 25000, total: 100000 },
-        { name: 'French Fries', quantity: 2, unitPrice: 35000, total: 70000 },
-        { name: 'Pina Colada', quantity: 1, unitPrice: 55000, total: 55000 },
-      ],
-      itemsAmount: 225000, subtotal: 2 * price + 225000, discount: 25000, total: 2 * price + 200000,
-      payments: [{ method: 'cash', amount: 300000 }, { method: 'card', amount: 200000 }], paid: 500000, remaining: 0,
-    });
-  };
-
+  const testPrint = () => setSample(buildSampleReceipt(draft, language));
 
   return (
     <ModulePage title={t('Sozlamalar', 'Настройки')} extra={<button onClick={save} className="btn-gold flex items-center gap-2"><Save className="h-4 w-4" />{t('Saqlash', 'Сохранить')}</button>}>

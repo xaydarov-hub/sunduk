@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Banknote, CreditCard, Printer, Smartphone, Wallet } from 'lucide-react';
+import { Banknote, BellRing, CreditCard, Printer, Smartphone, Wallet } from 'lucide-react';
 import { fetchSessionBundle, useStore } from '@/lib/store';
 import { calculateCombinedBill } from '@/lib/calculations';
 import { buildSessionReceipt, ReceiptData } from '@/lib/receipt';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatNumber } from '@/lib/utils';
+import { nowMs } from '@/lib/clock';
+import { useDevicePrefs } from '@/lib/devicePrefs';
 import { useNow, useT } from '@/lib/hooks';
 import { BillSummary } from '@/components/shared/BillSummary';
 import { SessionClock } from '@/components/shared/SessionClock';
@@ -15,6 +17,14 @@ import { paymentMethodLabel } from '@/lib/labels';
 import { PaymentMethod } from '@/types';
 
 const methodIcon: Record<PaymentMethod, typeof Banknote> = { cash: Banknote, card: CreditCard, electronic: Smartphone };
+
+/** Naqd to'lov uchun tez summalar: aniq qoldiq, yaxlitlangan va oddiy kupyuralar. */
+function quickCash(remaining: number): number[] {
+  const up = (step: number) => Math.ceil(remaining / step) * step;
+  const values = new Set<number>([remaining, up(10000), up(50000), up(100000)]);
+  [200000, 500000, 1000000].forEach(value => { if (value >= remaining) values.add(value); });
+  return Array.from(values).filter(value => value > 0).sort((a, b) => a - b).slice(0, 5);
+}
 
 interface PaymentPanelProps {
   /** Berilsa ro'yxat yashiriladi va faqat shu xona uchun to'lov oynasi ko'rsatiladi. */
@@ -26,7 +36,8 @@ interface PaymentPanelProps {
 export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   const t = useT();
   const language = useStore(state => state.language);
-  const { sessions, orders, payments, settings, users, currentUser, paySession, logActivity, addToast } = useStore();
+  const { sessions, orders, payments, settings, users, currentUser, notifications, paySession, logActivity, addToast } = useStore();
+  const autoPrintReceipt = useDevicePrefs(state => state.autoPrintReceipt);
   const now = useNow(1000);
   const [pickedId, setPickedId] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -35,9 +46,16 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   const closeAfterReceipt = useRef(false);
   const [paying, setPaying] = useState(false);
 
+  // Ofitsiant "kassaga to'lov so'rovi" yuborgan xonalar (so'nggi 60 daqiqa) — ro'yxatda birinchi
+  const requestedIds = useMemo(
+    () => new Set(notifications.filter(n => n.reference && n.targetRole !== 'waiter' && nowMs() - new Date(n.createdAt).getTime() < 60 * 60 * 1000).map(n => n.reference as string)),
+    [notifications, now],
+  );
   const active = useMemo(
-    () => sessions.filter(s => s.status === 'active').sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true })),
-    [sessions],
+    () => sessions
+      .filter(s => s.status === 'active')
+      .sort((a, b) => Number(requestedIds.has(b.id)) - Number(requestedIds.has(a.id)) || a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true })),
+    [sessions, requestedIds],
   );
   const sessionId = fixedSessionId || pickedId;
   const session = active.find(s => s.id === sessionId);
@@ -128,9 +146,9 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
             const b = calculateCombinedBill(item, orders, payments, settings, { at: now });
             const selected = item.id === sessionId;
             return (
-              <button key={item.id} type="button" onClick={() => setPickedId(item.id)} className={`stat-card w-full text-left ${selected ? '!border-gold-500/70 bg-gold-500/5' : ''}`}>
+              <button key={item.id} type="button" onClick={() => setPickedId(item.id)} className={`stat-card w-full text-left ${selected ? '!border-gold-500/70 bg-gold-500/5' : ''} ${requestedIds.has(item.id) && !selected ? '!border-amber-500/60' : ''}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-lg font-bold">{item.roomNumber}</div>
+                  <div className="flex items-center gap-2 text-lg font-bold">{item.roomNumber}{requestedIds.has(item.id) && <span className="flex animate-pulse items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-bold text-black"><BellRing className="h-3 w-3" />{t('Hisob so‘ralgan', 'Просят счёт')}</span>}</div>
                   <div className="text-lg font-bold text-gold-400">{formatCurrency(b.remaining)}</div>
                 </div>
                 <div className="mt-0.5 flex items-center justify-between text-xs text-zinc-500">
@@ -176,10 +194,21 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
                 {(['cash', 'card', 'electronic'] as const).map(method => {
                   const Icon = methodIcon[method];
                   return (
-                    <div key={method} className="flex items-center gap-2">
-                      <div className="flex w-28 shrink-0 items-center gap-2 text-sm text-zinc-300"><Icon className="h-4 w-4 shrink-0 text-gold-400" />{paymentMethodLabel(method, language)}</div>
-                      <MoneyInput value={amounts[method]} onChange={value => setAmount(method, value)} placeholder="0" />
-                      <button type="button" onClick={() => fillRemaining(method)} disabled={remaining <= 0} className="btn-secondary shrink-0 px-3 text-xs">{t('To‘liq', 'Всё')}</button>
+                    <div key={method} className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex w-28 shrink-0 items-center gap-2 text-sm text-zinc-300"><Icon className="h-4 w-4 shrink-0 text-gold-400" />{paymentMethodLabel(method, language)}</div>
+                        <MoneyInput value={amounts[method]} onChange={value => setAmount(method, value)} placeholder="0" />
+                        <button type="button" onClick={() => fillRemaining(method)} disabled={remaining <= 0} className="btn-secondary shrink-0 px-3 text-xs">{t('To‘liq', 'Всё')}</button>
+                      </div>
+                      {method === 'cash' && remaining > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pl-[7.5rem]">
+                          {quickCash(remaining).map(value => (
+                            <button key={value} type="button" onClick={() => setAmounts({ cash: value, card: 0, electronic: 0 })} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${amounts.cash === value && !nonCash ? 'bg-gold-500 text-black' : 'bg-white/5 text-zinc-300 hover:bg-white/10'}`}>
+                              {value === remaining ? t('Aniq', 'Точно') : formatNumber(value)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -188,7 +217,7 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
               <div className="space-y-1.5 rounded-lg bg-black/25 p-3 text-sm">
                 <div className="flex justify-between"><span className="text-zinc-400">{t('To‘lanadi', 'К оплате')}</span><b>{formatCurrency(remaining)}</b></div>
                 <div className="flex justify-between"><span className="text-zinc-400">{t('Qabul qilinadi', 'Принимается')}</span><b className="text-gold-400">{formatCurrency(applied)}</b></div>
-                {change > 0 && <div className="flex justify-between text-green-400"><span>{t('Qaytim', 'Сдача')}</span><b>{formatCurrency(change)}</b></div>}
+                {change > 0 && <div className="flex items-center justify-between rounded-lg bg-green-500/15 px-3 py-2 text-green-300"><span className="font-semibold">{t('Qaytim', 'Сдача')}</span><b className="text-2xl">{formatCurrency(change)}</b></div>}
                 {tooMuch && <div className="text-red-400">{t('Karta/elektron summasi qoldiqdan oshib ketdi', 'Сумма карты/электронных превышает остаток')}</div>}
               </div>
 
@@ -201,7 +230,7 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
         )}
       </section>
 
-      <ReceiptModal data={receipt} onClose={closeReceipt} onPrint={logPrint} />
+      <ReceiptModal data={receipt} onClose={closeReceipt} onPrint={logPrint} autoPrint={autoPrintReceipt} />
     </div>
   );
 }

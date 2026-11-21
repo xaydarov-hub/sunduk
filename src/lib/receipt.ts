@@ -177,3 +177,22 @@ export function printReceiptElement(root: HTMLElement, paperWidthMm: number): vo
   window.addEventListener('afterprint', cleanup);
   window.print();
 }
+
+/** Printer sozlamalarini sinash uchun namuna chek (haqiqiy ma'lumot yozilmaydi). */
+export function buildSampleReceipt(settings: Settings, lang: Language): ReceiptData {
+  const price = 150000;
+  const now = Date.now();
+  return {
+    kind: 'receipt', number: 'RCP-00000', printedAt: new Date(now).toISOString(), lang,
+    business: business(settings),
+    paperWidthMm: settings.paperWidthMm, showQr: settings.showReceiptQr, taxRate: settings.taxRate, qrSeed: 'test-receipt',
+    room: { number: 'VIP 01', name: 'Namuna xona', start: new Date(now - 2 * 3600 * 1000).toISOString(), end: new Date(now).toISOString(), bookedHours: 2, overtimeHours: 0, billedHours: 2, hourlyPrice: price, amount: 2 * price },
+    customer: 'Sinov', waiter: 'Ofitsiant', cashier: 'Kassir',
+    lines: [
+      { name: 'Namuna mahsulot', quantity: 4, unitPrice: 25000, total: 100000 },
+      { name: 'Namuna taom', quantity: 2, unitPrice: 35000, total: 70000 },
+    ],
+    itemsAmount: 170000, subtotal: 2 * price + 170000, discount: 20000, total: 2 * price + 150000,
+    payments: [{ method: 'cash', amount: 300000 }, { method: 'card', amount: 150000 }], paid: 450000, remaining: 0,
+  };
+}

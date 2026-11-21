@@ -4,6 +4,8 @@ import { ReactNode, useEffect } from 'react';
 import { TriangleAlert, WifiOff } from 'lucide-react';
 import { initApp, useStore } from '@/lib/store';
 import { useT } from '@/lib/hooks';
+import { useDevicePrefs } from '@/lib/devicePrefs';
+import { PrintHost } from '@/components/receipt/PrintHost';
 
 /** Ilovani ishga tushiradi (Firebase, auth, soat), internet yo'qligini ko'rsatadi. */
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -11,7 +13,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const configError = useStore(state => state.configError);
   const online = useStore(state => state.online);
 
-  useEffect(() => { initApp(); }, []);
+  useEffect(() => { initApp(); useDevicePrefs.getState().hydrate(); }, []);
 
   if (configError) {
     return (
@@ -36,6 +38,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         </div>
       )}
       {children}
+      <PrintHost />
     </>
   );
 }

@@ -27,3 +27,21 @@ export function useT() {
   const language = useStore(state => state.language);
   return useCallback((uz: string, ru: string) => (language === 'uz' ? uz : ru), [language]);
 }
+
+/** Ekran o'chib qolmasligi uchun (kassa kompyuteri/planshet). Qo'llab-quvvatlanmasa — hech narsa qilmaydi. */
+export function useWakeLock(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    const request = async () => {
+      try { lock = await navigator.wakeLock.request('screen'); } catch { /* ruxsat yo'q yoki batareya tejash rejimi */ }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') void request(); };
+    void request();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      lock?.release().catch(() => { /* allaqachon bo'shatilgan */ });
+    };
+  }, [enabled]);
+}

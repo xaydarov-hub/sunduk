@@ -14,14 +14,14 @@ import { Product } from '@/types';
 
 interface FormState {
   name: string; nameRu: string; categoryId: string; salePrice: number; costPrice: number;
-  unit: string; trackStock: boolean; currentStock: number; minStock: number;
+  unit: string; trackStock: boolean; currentStock: number; minStock: number; barcode: string;
 }
 
 export default function AdminProductsPage() {
   const t = useT();
   const { products, categories, language, addProduct, updateProduct, deleteProduct, addToast } = useStore();
   const [deleting, setDeleting] = useState<Product | null>(null);
-  const empty = (): FormState => ({ name: '', nameRu: '', categoryId: categories[0]?.id || '', salePrice: 0, costPrice: 0, unit: 'dona', trackStock: false, currentStock: 0, minStock: 0 });
+  const empty = (): FormState => ({ name: '', nameRu: '', categoryId: categories[0]?.id || '', salePrice: 0, costPrice: 0, unit: 'dona', trackStock: false, currentStock: 0, minStock: 0, barcode: '' });
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(empty);
@@ -38,7 +38,7 @@ export default function AdminProductsPage() {
   const startNew = () => { setEditingId(null); setForm(empty()); setOpen(true); };
   const startEdit = (p: Product) => {
     setEditingId(p.id);
-    setForm({ name: p.name, nameRu: p.nameRu, categoryId: p.categoryId, salePrice: p.salePrice, costPrice: p.costPrice, unit: p.unit, trackStock: isStockTracked(p), currentStock: p.currentStock, minStock: p.minStock });
+    setForm({ name: p.name, nameRu: p.nameRu, categoryId: p.categoryId, salePrice: p.salePrice, costPrice: p.costPrice, unit: p.unit, trackStock: isStockTracked(p), currentStock: p.currentStock, minStock: p.minStock, barcode: p.barcode || '' });
     setOpen(true);
   };
 
@@ -47,6 +47,7 @@ export default function AdminProductsPage() {
     const data = {
       name: form.name.trim(), nameRu: form.nameRu.trim() || form.name.trim(), categoryId: form.categoryId,
       salePrice: form.salePrice, costPrice: form.costPrice, unit: form.unit.trim() || 'dona',
+      barcode: form.barcode.trim(),
       trackStock: form.trackStock, currentStock: form.trackStock ? form.currentStock : 0, minStock: form.trackStock ? form.minStock : 0,
     };
     if (editingId) updateProduct(editingId, data);
@@ -111,6 +112,7 @@ export default function AdminProductsPage() {
           <label className="text-sm text-zinc-400">{t('O‘lchov birligi', 'Единица')}<input className="input-dark mt-1" value={form.unit} onChange={event => set('unit', event.target.value)} /></label>
           <label className="text-sm text-zinc-400">{t('Sotuv narxi', 'Цена продажи')}<MoneyInput className="mt-1" value={form.salePrice} onChange={value => set('salePrice', value)} /></label>
           <label className="text-sm text-zinc-400">{t('Tannarx', 'Себестоимость')}<MoneyInput className="mt-1" value={form.costPrice} onChange={value => set('costPrice', value)} /></label>
+          <label className="text-sm text-zinc-400 sm:col-span-2">{t('Shtrix-kod (ixtiyoriy — kassada skanerlash uchun)', 'Штрихкод (необязательно — для сканера на кассе)')}<input className="input-dark mt-1" value={form.barcode} onChange={event => set('barcode', event.target.value)} inputMode="numeric" /></label>
           <label className="flex items-center gap-3 rounded-xl bg-white/[.03] p-3 text-sm sm:col-span-2">
             <input type="checkbox" className="h-5 w-5 accent-amber-500" checked={form.trackStock} onChange={event => set('trackStock', event.target.checked)} />
             <span>{t('Ombor qoldig‘i yuritilsin (0 bo‘lsa sotib bo‘lmaydi)', 'Вести остаток на складе (при 0 продажа блокируется)')}</span>

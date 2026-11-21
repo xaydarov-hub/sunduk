@@ -9,6 +9,7 @@ import { paymentMethodLabel, PAYMENT_METHODS } from '@/lib/labels';
 import { useT } from '@/lib/hooks';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { Price } from '@/components/ui/Price';
+import { useDevicePrefs } from '@/lib/devicePrefs';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
 import { PaymentMethod } from '@/types';
 
@@ -52,6 +53,18 @@ export default function BarPosPage() {
     });
   };
 
+  const autoPrintReceipt = useDevicePrefs(state => state.autoPrintReceipt);
+
+  /** Shtrix-kod skaneri (klaviatura kabi yozadi + Enter) yoki aniq nom: mahsulotni darhol savatga qo'shadi. */
+  const submitSearch = () => {
+    const q = search.trim().toLowerCase();
+    if (!q) return;
+    const byCode = products.find(p => p.isActive && p.barcode && p.barcode.toLowerCase() === q);
+    const target = byCode ?? (filtered.length === 1 ? filtered[0] : undefined);
+    if (target) { change_(target.id, 1); setSearch(''); }
+    else addToast({ type: 'warning', title: t('Aniq bitta mahsulot topilmadi', 'Не найден один товар'), message: q });
+  };
+
   const checkout = async () => {
     if (!items.length) return;
     const result = await checkoutBarSale({ items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })), method });
@@ -80,7 +93,7 @@ export default function BarPosPage() {
         </div>
         <div className="relative mb-3">
           <Search className="absolute left-3 top-3 h-5 w-5 text-zinc-500" />
-          <input className="input-dark !py-3 pl-10" value={search} onChange={event => setSearch(event.target.value)} placeholder={t('Mahsulot qidirish', 'Поиск товара')} />
+          <input className="input-dark !py-3 pl-10" autoFocus value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submitSearch(); } }} placeholder={t('Qidirish yoki shtrix-kod skanerlash (Enter)', 'Поиск или сканирование штрихкода (Enter)')} />
         </div>
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
           <button onClick={() => setCategory('all')} className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold ${category === 'all' ? 'bg-gold-500 text-black' : 'bg-white/5 text-zinc-300'}`}>{t('Barchasi', 'Все')}</button>
@@ -149,7 +162,7 @@ export default function BarPosPage() {
         </div>
       </aside>
 
-      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} onPrint={logPrint} />
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} onPrint={logPrint} autoPrint={autoPrintReceipt} />
     </div>
   );
 }

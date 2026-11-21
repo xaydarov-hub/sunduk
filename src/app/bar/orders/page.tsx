@@ -1,6 +1,8 @@
 'use client';
 
+import { Printer } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { usePrintQueue } from '@/lib/printQueue';
 import { formatCurrency, formatTime } from '@/lib/utils';
 import { orderStatusLabel, orderStatusTone } from '@/lib/labels';
 import { useNow, useT } from '@/lib/hooks';
@@ -16,6 +18,7 @@ export default function BarOrdersPage() {
   const t = useT();
   const { orders, updateOrderStatus, language, addToast } = useStore();
   const now = useNow(30000);
+  const enqueue = usePrintQueue(state => state.enqueue);
 
   const queue = orders
     .filter(o => o.source === 'room' && ['new', 'accepted', 'preparing', 'ready'].includes(o.status))
@@ -64,11 +67,14 @@ export default function BarOrdersPage() {
                 ))}
               </div>
               {order.notes && <div className="mb-3 rounded-lg bg-yellow-500/10 p-3 text-sm text-yellow-300">{order.notes}</div>}
-              {next ? (
-                <button onClick={() => move(order.id, next)} className="btn-gold min-h-14 w-full text-base">{actionLabel(order.status)}</button>
-              ) : (
-                <div className="rounded-lg bg-green-500/10 p-3 text-center text-sm text-green-300">{t('Tayyor — ofitsiant olib borishini kutmoqda', 'Готово — ждёт официанта')}</div>
-              )}
+              <div className="flex gap-2">
+                {next ? (
+                  <button onClick={() => move(order.id, next)} className="btn-gold min-h-14 flex-1 text-base">{actionLabel(order.status)}</button>
+                ) : (
+                  <div className="flex-1 rounded-lg bg-green-500/10 p-3 text-center text-sm text-green-300">{t('Tayyor — ofitsiant olib borishini kutmoqda', 'Готово — ждёт официанта')}</div>
+                )}
+                <button onClick={() => enqueue({ kind: 'ticket', order })} className="btn-secondary flex min-h-14 items-center gap-2 px-4" title={t('Talonchani chop etish', 'Печать талона')}><Printer className="h-5 w-5" /><span className="hidden sm:inline">{t('Talon', 'Талон')}</span></button>
+              </div>
             </article>
           );
         })}

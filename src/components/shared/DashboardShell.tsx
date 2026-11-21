@@ -6,11 +6,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   BarChart3, Bell, CalendarDays, ChevronLeft, ChevronRight, DoorOpen, History,
   LayoutDashboard, LogOut, Menu, Package, ReceiptText, Settings, ShoppingCart,
-  Tags, Users, UserCog, WalletCards, UtensilsCrossed, X, Receipt, Boxes, Banknote, KeyRound, Loader2,
+  Tags, Users, UserCog, WalletCards, UtensilsCrossed, X, Receipt, Boxes, Banknote, KeyRound, Loader2, Printer,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { useMounted } from '@/lib/hooks';
+import { useMounted, useWakeLock } from '@/lib/hooks';
+import { beep } from '@/lib/sound';
+import { OrderWatcher } from '@/components/shared/OrderWatcher';
+import { DeviceSettings } from '@/components/shared/DeviceSettings';
 import { roleLabel } from '@/lib/labels';
 import { getTimeAgo } from '@/lib/utils';
 import { UserRole } from '@/types';
@@ -40,6 +43,7 @@ const barNav: NavItem[] = [
   { href: '/bar/orders', uz: 'Buyurtmalar', ru: 'Заказы', icon: UtensilsCrossed },
   { href: '/bar/payments', uz: 'To‘lovlar', ru: 'Платежи', icon: WalletCards },
   { href: '/bar/receipts', uz: 'Cheklar', ru: 'Чеки', icon: Receipt },
+  { href: '/bar/report', uz: 'Hisobot', ru: 'Отчёт', icon: BarChart3 },
   { href: '/bar/history', uz: 'Tarix', ru: 'История', icon: History },
 ];
 
@@ -51,22 +55,6 @@ const waiterNav: NavItem[] = [
 
 const roots = ['/admin', '/bar', '/waiter'];
 
-function beep() {
-  try {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    gain.gain.value = 0.06;
-    osc.start();
-    osc.stop(ctx.currentTime + 0.18);
-    window.setTimeout(() => ctx.close(), 400);
-  } catch { /* brauzer ruxsat bermasa — jim */ }
-}
-
 export function DashboardShell({ children, role }: { children: ReactNode; role: UserRole }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -76,6 +64,8 @@ export function DashboardShell({ children, role }: { children: ReactNode; role: 
   const [bellOpen, setBellOpen] = useState(false);
   const { currentUser, isAuthenticated, authReady, syncReady, language, setLanguage, logout, notifications, markNotificationRead, markAllNotificationsRead, changePassword, addToast } = useStore();
   const [pwOpen, setPwOpen] = useState(false);
+  const [deviceOpen, setDeviceOpen] = useState(false);
+  useWakeLock(role === 'bar');
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [pwBusy, setPwBusy] = useState(false);
@@ -178,6 +168,7 @@ export function DashboardShell({ children, role }: { children: ReactNode; role: 
             <div><div className="text-sm font-semibold">{currentUser.name}</div><div className="text-xs text-zinc-500">{roleLabel(role, language)}</div></div>
           </div>
           <div className="flex items-center gap-2">
+            {(role === 'bar' || role === 'admin') && <button onClick={() => setDeviceOpen(true)} className="btn-ghost p-2" aria-label={t('Printer va signal', 'Принтер и сигналы')} title={t('Printer va signal', 'Принтер и сигналы')}><Printer className="h-5 w-5" /></button>}
             <button onClick={() => setPwOpen(true)} className="btn-ghost p-2" aria-label={t('Parolni o‘zgartirish', 'Сменить пароль')} title={t('Parolni o‘zgartirish', 'Сменить пароль')}><KeyRound className="h-5 w-5" /></button>
             <button onClick={() => setLanguage(language === 'uz' ? 'ru' : 'uz')} className="btn-secondary px-3 py-2 text-xs">{language === 'uz' ? 'RU' : 'UZ'}</button>
             {bottomNav && <button onClick={async () => { await logout(); router.replace('/login/'); }} className="btn-ghost p-2 text-red-400 lg:hidden" aria-label={t('Chiqish', 'Выход')}><LogOut className="h-5 w-5" /></button>}
@@ -212,6 +203,9 @@ export function DashboardShell({ children, role }: { children: ReactNode; role: 
         </header>
         <main className={bottomNav ? 'pb-24 lg:pb-0' : ''}>{children}</main>
       </div>
+
+      {(role === 'bar' || role === 'admin') && <OrderWatcher />}
+      {(role === 'bar' || role === 'admin') && <DeviceSettings open={deviceOpen} onClose={() => setDeviceOpen(false)} />}
 
       <Modal open={pwOpen} onClose={() => setPwOpen(false)} size="sm" title={t('Parolni o‘zgartirish', 'Сменить пароль')} footer={<button className="btn-gold min-h-12 w-full" disabled={pwBusy || !oldPw || newPw.length < 6} onClick={submitPassword}>{t('Saqlash', 'Сохранить')}</button>}>
         <div className="space-y-3">
