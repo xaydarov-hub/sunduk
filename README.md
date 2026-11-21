@@ -76,6 +76,27 @@ npm run emulators                       # bir oynada
 NEXT_PUBLIC_USE_EMULATOR=1 NEXT_PUBLIC_FIREBASE_API_KEY=x NEXT_PUBLIC_FIREBASE_PROJECT_ID=demo-sunduk NEXT_PUBLIC_FIREBASE_APP_ID=1:1:web:1 npm run dev
 ```
 
+## Telegram cashback bot (sodiqlik tizimi)
+
+Chek pastidagi **haqiqiy QR** botga olib boradi: mijoz skanerlasa, xaridining foizi cashback sifatida hisobiga tushadi.
+Hammasi admin panelda: **Sodiqlik** bo'limi (sozlamalar, mijozlar, ommaviy xabar, reklama).
+
+**Qanday ishlaydi:** to'lov bilan bir tranzaksiyada `claims/{kod}` yoziladi → chekka `t.me/<bot>?start=r_<kod>` QR bo'lib chiqadi → bot (Netlify Function) kodni tekshiradi, to'lov yozuvlari bilan solishtiradi va cashback hisoblaydi. Cashback kassada 6 xonali kod bilan ishlatiladi (to'lov usuli — "Cashback").
+
+**Server sozlamalari** (Netlify → Site configuration → Environment variables; hech qachon repoga yozilmaydi):
+
+| O'zgaruvchi | Nima |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | @BotFather bergan token |
+| `TG_WEBHOOK_SECRET` | Tasodifiy uzun matn (webhook'ni begonalardan himoyalaydi) |
+| `FB_PROJECT_ID`, `FB_CLIENT_EMAIL`, `FB_PRIVATE_KEY_B64` (kalitning base64 ko‘rinishi) | Firebase xizmat hisobi (Project settings → Service accounts) |
+| `TG_ADMIN_IDS` | Admin Telegram ID lari (vergul bilan) |
+
+Webhook o'rnatish: admin panel → Sodiqlik → **Botni ulash** (yoki Telegram `setWebhook` ni `https://<sayt>/.netlify/functions/tg-webhook` va `secret_token=TG_WEBHOOK_SECRET` bilan chaqiring).
+Funksiyalar: `netlify/functions/` (`tg-webhook`, `loyalty-api`, `tg-broadcast-background`, `loyalty-cron` — har kuni 10:00 Toshkent).
+
+**Sinov:** `npm run emulators` + `npm run test:bot` (111 tekshiruv, soxta Telegram bilan) va `npx tsx scripts/rules-test.ts` (xavfsizlik qoidalari). Qo'lda sinash: `npm run dev:functions` (8888-port) va frontendni `NEXT_PUBLIC_FUNCTIONS_BASE=http://127.0.0.1:8888/.netlify/functions` bilan ishga tushiring.
+
 ## Bepul tarif chegaralari (Firebase Spark)
 
 | Resurs | Bepul chegara | 7 xonali bar uchun taxminiy sarf |

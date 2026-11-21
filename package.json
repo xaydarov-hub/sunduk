@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p netlify/tsconfig.json",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-sunduk",
     "deploy:rules": "firebase deploy --only firestore",
     "deploy": "npm run build && netlify deploy --prod --dir=out",
-    "deploy:vercel": "vercel deploy --prod"
+    "deploy:vercel": "vercel deploy --prod",
+    "test:bot": "tsx scripts/bot-test.ts",
+    "dev:functions": "tsx scripts/dev-functions.ts"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.1",
@@ -26,7 +28,6 @@
     "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/react-toast": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.1.2",
-    "@types/node": "^20.14.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
@@ -34,9 +35,11 @@
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "firebase": "^13.4.0",
+    "firebase-admin": "^13.10.0",
     "lucide-react": "^0.414.0",
     "next": "14.2.5",
     "postcss": "^8.4.40",
+    "qrcode-generator": "^1.5.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7",
@@ -46,7 +49,9 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@types/node": "^26.6.6",
     "firebase-tools": "^15.37.0",
+    "tsx": "^4.23.15",
     "vercel": "^66.5.0"
   }
 }

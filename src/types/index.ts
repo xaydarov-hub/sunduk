@@ -176,7 +176,8 @@ export interface PurchaseItem {
 // ============================================================
 export type OrderStatus = 'new' | 'accepted' | 'preparing' | 'ready' | 'served' | 'cancelled';
 export type OrderSource = 'bar' | 'room';
-export type PaymentMethod = 'cash' | 'card' | 'electronic';
+/** 'bonus' — mijozning cashback balansidan to'langan qism (kassaga pul tushmaydi). */
+export type PaymentMethod = 'cash' | 'card' | 'electronic' | 'bonus';
 
 export interface OrderItem {
   id: string;
@@ -240,6 +241,10 @@ export interface Payment {
   billId?: string;
   status?: 'confirmed' | 'pending' | 'cancelled';
   idempotencyKey?: string;
+  /** Chekdagi QR kod (Telegram cashback). Bir chekning barcha to'lovlarida bir xil. */
+  claimCode?: string;
+  /** Cashback bilan to'langan qism bo'lsa — ishlatilgan yozuv ID si. */
+  redemptionId?: string;
 }
 
 // ============================================================

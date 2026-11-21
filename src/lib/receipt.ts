@@ -1,6 +1,8 @@
 // Chek (to'langan) va Shot/hisob (to'lovgacha) ma'lumotlarini tayyorlaydi.
 import { Language, Order, Payment, PaymentMethod, RoomSession, Settings, User } from '@/types';
 import { calculateCombinedBill } from '@/lib/calculations';
+import { useStore } from '@/lib/store';
+import { claimLink } from '@/lib/loyalty/shared';
 
 export interface ReceiptLine {
   name: string;
@@ -23,6 +25,8 @@ export interface ReceiptData {
   taxRate: number;
   /** Bezak QR shakli shu qiymatdan hosil bo'ladi. */
   qrSeed: string;
+  /** Haqiqiy cashback QR (Telegram bot). Bo'lsa, bezak QR o'rniga chiqadi. */
+  qr?: { url: string; caption: string; sub: string };
   room?: {
     number: string;
     name: string;
@@ -47,6 +51,18 @@ export interface ReceiptData {
   remaining: number;
   /** Naqd to'lovda qaytim (faqat to'lov paytidagi chek uchun). */
   change?: number;
+}
+
+/** Sodiqlik yoqilgan bo'lsa, chek uchun haqiqiy QR (Telegram bot havolasi) tayyorlaydi. */
+function loyaltyQr(claimCode: string | undefined, lang: Language): ReceiptData['qr'] {
+  const cfg = useStore.getState().loyalty;
+  if (!cfg?.enabled || !cfg.botUsername || !claimCode) return undefined;
+  const percent = cfg.tiers[0]?.percent ?? 3;
+  return {
+    url: claimLink(cfg.botUsername, claimCode),
+    caption: lang === 'uz' ? `QR ni skanerlang — ${percent}% cashback oling` : `Сканируйте QR — получите ${percent}% кэшбэка`,
+    sub: `@${cfg.botUsername.replace(/^@/, '')}`,
+  };
 }
 
 function business(settings: Settings) {
@@ -102,6 +118,7 @@ export function buildSessionReceipt({ kind, session, orders, payments, settings,
     showQr: settings.showReceiptQr,
     taxRate: settings.taxRate,
     qrSeed: `${session.id}|${receiptNumber || now}`,
+    qr: kind === 'receipt' ? loyaltyQr(thisReceipt.find(p => p.claimCode)?.claimCode, lang) : undefined,
     room: {
       number: session.roomNumber,
       name: session.roomName,
@@ -130,6 +147,8 @@ export function buildSessionReceipt({ kind, session, orders, payments, settings,
 interface BarReceiptArgs {
   order: Order;
   payment: Payment;
+  /** Bir chekdagi hamma to'lovlar (cashback bilan aralash to'langanda bir nechta bo'ladi). */
+  payments?: Payment[];
   settings: Settings;
   users?: User[];
   lang: Language;
@@ -137,8 +156,10 @@ interface BarReceiptArgs {
 }
 
 /** Bar to'g'ridan-to'g'ri savdosi cheki (xonasiz). */
-export function buildBarReceipt({ order, payment, settings, users = [], lang, copy }: BarReceiptArgs): ReceiptData {
+export function buildBarReceipt({ order, payment, payments, settings, users = [], lang, copy }: BarReceiptArgs): ReceiptData {
   const items = order.items.filter(item => !item.voided);
+  const parts = payments && payments.length ? payments : [payment];
+  const total = parts.reduce((sum, p) => sum + p.amount, 0);
   const itemsAmount = items.reduce((sum, item) => sum + item.totalPrice, 0);
   return {
     kind: 'receipt',
@@ -151,14 +172,15 @@ export function buildBarReceipt({ order, payment, settings, users = [], lang, co
     showQr: settings.showReceiptQr,
     taxRate: settings.taxRate,
     qrSeed: `${order.id}|${payment.receiptNumber}`,
+    qr: loyaltyQr(parts.find(p => p.claimCode)?.claimCode, lang),
     cashier: payment.processedByName ?? users.find(u => u.id === payment.processedBy)?.name,
     lines: items.map(item => ({ name: lang === 'uz' ? item.productName : item.productNameRu, quantity: item.quantity, unitPrice: item.unitPrice, total: item.totalPrice })),
     itemsAmount,
     subtotal: itemsAmount,
     discount: 0,
-    total: payment.amount,
-    payments: [{ method: payment.method, amount: payment.amount }],
-    paid: payment.amount,
+    total,
+    payments: groupByMethod(parts),
+    paid: total,
     remaining: 0,
   };
 }

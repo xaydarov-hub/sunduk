@@ -12,8 +12,10 @@ import { Price } from '@/components/ui/Price';
 import { useDevicePrefs } from '@/lib/devicePrefs';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
 import { PaymentMethod } from '@/types';
+import { CashbackApplied, CashbackRedeem } from '@/components/shared/CashbackRedeem';
+import { confirmCashback, redeemCashback, refundCashback } from '@/lib/loyalty/api';
 
-const methodIcon: Record<PaymentMethod, typeof Banknote> = { cash: Banknote, card: CreditCard, electronic: Smartphone };
+const methodIcon: Partial<Record<PaymentMethod, typeof Banknote>> = { cash: Banknote, card: CreditCard, electronic: Smartphone };
 
 /** Bar POS: xonasiz to'g'ridan-to'g'ri savdo — to'lov qabul qilinadi va chek chiqariladi. */
 export default function BarPosPage() {
@@ -25,6 +27,8 @@ export default function BarPosPage() {
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [tendered, setTendered] = useState(0);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [bonus, setBonus] = useState<CashbackApplied | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const activeCategories = useMemo(() => categories.filter(c => c.isActive !== false).sort((a, b) => (a.order || 0) - (b.order || 0)), [categories]);
   const filtered = useMemo(() => {
@@ -35,7 +39,9 @@ export default function BarPosPage() {
   const items = products.filter(p => cart[p.id] > 0).map(p => ({ product: p, quantity: cart[p.id] }));
   const total = items.reduce((sum, i) => sum + i.quantity * i.product.salePrice, 0);
   const count = items.reduce((sum, i) => sum + i.quantity, 0);
-  const change = method === 'cash' && tendered > total ? tendered - total : 0;
+  const bonusAmount = bonus ? Math.min(bonus.amount, total) : 0;
+  const cashDue = total - bonusAmount;
+  const change = method === 'cash' && tendered > cashDue ? tendered - cashDue : 0;
   const nameOf = (p: { name: string; nameRu: string }) => (language === 'uz' ? p.name : p.nameRu);
 
   const change_ = (productId: string, delta: number) => {
@@ -66,13 +72,33 @@ export default function BarPosPage() {
   };
 
   const checkout = async () => {
-    if (!items.length) return;
-    const result = await checkoutBarSale({ items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })), method });
-    if (!result.ok) { addToast({ type: 'error', title: t('Savdo bajarilmadi', 'Продажа не выполнена'), message: result.error }); return; }
+    if (!items.length || busy) return;
+    setBusy(true);
+    // Cashback: avval mijoz balansidan yechiladi; savdo bajarilmasa qaytariladi
+    let redemptionId: string | undefined;
+    if (bonus && bonusAmount > 0) {
+      const redeemed = await redeemCashback({ code: bonus.code, amount: bonusAmount, due: total });
+      if (!redeemed.ok) {
+        setBusy(false);
+        addToast({ type: 'error', title: t('Cashback qo‘llanmadi', 'Кэшбэк не применён'), message: redeemed.error });
+        if (redeemed.code === 'CODE_USED' || redeemed.code === 'CODE_EXPIRED' || redeemed.code === 'CODE_INVALID') setBonus(null);
+        return;
+      }
+      redemptionId = redeemed.id;
+    }
+    const result = await checkoutBarSale({ items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })), method, bonus: redemptionId ? { redemptionId, amount: bonusAmount } : undefined });
+    setBusy(false);
+    if (!result.ok) {
+      if (redemptionId) void refundCashback(redemptionId);
+      addToast({ type: 'error', title: t('Savdo bajarilmadi', 'Продажа не выполнена'), message: result.error });
+      return;
+    }
+    if (redemptionId) void confirmCashback(redemptionId, result.payment.receiptNumber);
     const state = useStore.getState();
-    const data = buildBarReceipt({ order: result.order, payment: result.payment, settings: state.settings, users: state.users, lang: state.language });
+    const data = buildBarReceipt({ order: result.order, payment: result.payment, payments: result.payments, settings: state.settings, users: state.users, lang: state.language });
     setReceipt({ ...data, change: change > 0 ? change : undefined });
     setCart({});
+    setBonus(null);
     setTendered(0);
     addToast({ type: 'success', title: t('Savdo yakunlandi', 'Продажа завершена'), message: `${result.payment.receiptNumber} · ${formatCurrency(result.payment.amount)}` });
   };
@@ -142,7 +168,7 @@ export default function BarPosPage() {
         <div className="space-y-3 border-t border-white/5 p-4">
           <div className="grid grid-cols-3 gap-2">
             {PAYMENT_METHODS.map(m => {
-              const Icon = methodIcon[m];
+              const Icon = methodIcon[m] ?? Banknote;
               return (
                 <button key={m} type="button" onClick={() => setMethod(m)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border-2 text-xs font-semibold ${method === m ? 'border-gold-500 bg-gold-500/15 text-gold-400' : 'border-white/10 text-zinc-400'}`}>
                   <Icon className="h-5 w-5" />{paymentMethodLabel(m, language)}
@@ -150,15 +176,17 @@ export default function BarPosPage() {
               );
             })}
           </div>
-          {method === 'cash' && (
+          <CashbackRedeem due={total} applied={bonus} onChange={setBonus} disabled={busy || !items.length} />
+          {method === 'cash' && cashDue > 0 && (
             <div>
               <div className="mb-1 text-xs text-zinc-500">{t('Berilgan summa (qaytim uchun)', 'Получено (для сдачи)')}</div>
-              <MoneyInput value={tendered} onChange={setTendered} placeholder={String(total)} />
+              <MoneyInput value={tendered} onChange={setTendered} placeholder={String(cashDue)} />
               {change > 0 && <div className="mt-1 text-sm font-semibold text-green-400">{t('Qaytim', 'Сдача')}: {formatCurrency(change)}</div>}
             </div>
           )}
-          <div className="flex items-center justify-between text-lg font-bold"><span>{t('Jami', 'Итого')}</span><span className="text-gold-400">{formatCurrency(total)}</span></div>
-          <button disabled={!items.length} onClick={checkout} className="btn-gold min-h-14 w-full text-base">{t('TO‘LASH VA CHEK', 'ОПЛАТИТЬ И ЧЕК')}</button>
+          {bonusAmount > 0 && <div className="flex items-center justify-between text-sm text-green-300"><span>{t('Cashback bilan', 'Кэшбэком')}</span><span>−{formatCurrency(bonusAmount)}</span></div>}
+          <div className="flex items-center justify-between text-lg font-bold"><span>{bonusAmount > 0 ? t('To‘lanadi', 'К оплате') : t('Jami', 'Итого')}</span><span className="text-gold-400">{formatCurrency(cashDue)}</span></div>
+          <button disabled={!items.length || busy} onClick={checkout} className="btn-gold min-h-14 w-full text-base">{t('TO‘LASH VA CHEK', 'ОПЛАТИТЬ И ЧЕК')}</button>
         </div>
       </aside>
 

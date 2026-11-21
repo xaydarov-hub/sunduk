@@ -68,7 +68,7 @@ export function ReceiptsList() {
       } else if (group.orderId) {
         const order = await fetchOrder(group.orderId);
         if (!order) throw new Error('not found');
-        setReceipt(buildBarReceipt({ order, payment: group.payments[0], settings, lang: language, copy: true }));
+        setReceipt(buildBarReceipt({ order, payment: group.payments[0], payments: group.payments, settings, lang: language, copy: true }));
       }
     } catch {
       addToast({ type: 'error', title: t('Chekni yuklab bo‘lmadi', 'Не удалось загрузить чек'), message: '' });

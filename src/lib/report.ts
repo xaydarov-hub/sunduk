@@ -43,7 +43,7 @@ export function buildDailyReport({ date, payments, sessions, orders, settings, l
   const receipts = (list: Payment[]) => new Set(list.map(p => p.receiptNumber)).size;
   const sum = (list: Payment[]) => list.reduce((s, p) => s + p.amount, 0);
 
-  const byMethod = (['cash', 'card', 'electronic'] as PaymentMethod[]).map(method => {
+  const byMethod = (['cash', 'card', 'electronic', 'bonus'] as PaymentMethod[]).filter(method => method !== 'bonus' || pays.some(p => p.method === 'bonus')).map(method => {
     const list = pays.filter(p => p.method === method);
     return { method, amount: sum(list), count: list.length };
   });

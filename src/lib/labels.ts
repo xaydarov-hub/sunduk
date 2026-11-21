@@ -25,6 +25,7 @@ const paymentMethod: Record<PaymentMethod, Pair> = {
   cash: { uz: 'Naqd', ru: 'Наличные' },
   card: { uz: 'Karta', ru: 'Карта' },
   electronic: { uz: 'Elektron', ru: 'Электронно' },
+  bonus: { uz: 'Cashback', ru: 'Кэшбэк' },
 };
 
 const role: Record<UserRole, Pair> = {

@@ -28,6 +28,7 @@ import {
   getDb, getFirebaseAuth, getStaffCreatorAuth, isFirebaseConfigured, isValidUsername, usernameToEmail,
 } from '@/lib/firebase';
 import { DEFAULT_SETTINGS, SEED_CATEGORIES, SEED_PRODUCTS, SEED_ROOMS } from '@/lib/data/seed-data';
+import { COL, ClaimDoc, LoyaltyConfig, makeCode, mergeConfig } from '@/lib/loyalty/shared';
 
 // ----------------------------------------------------------------
 // Types
@@ -75,6 +76,8 @@ interface AppState {
   bookings: Booking[];
   inventoryMovements: InventoryMovement[];
   settings: Settings;
+  /** Sodiqlik (Telegram cashback) sozlamalari — faqat kassa/admin uchun yuklanadi. */
+  loyalty: LoyaltyConfig | null;
   toasts: Toast[];
 
   // Auth
@@ -107,8 +110,8 @@ interface AppState {
   voidOrderItem: (orderId: string, itemId: string, reason: string) => Promise<ActionResult>; // faqat admin
 
   // To'lovlar
-  paySession: (params: { sessionId: string; parts: Array<{ method: PaymentMethod; amount: number }>; discount?: number }) => Promise<ActionResult<{ receiptNumber: string; completed: boolean; paid: number; remaining: number }>>;
-  checkoutBarSale: (params: { items: OrderRequestItem[]; method: PaymentMethod }) => Promise<ActionResult<{ order: Order; payment: Payment }>>;
+  paySession: (params: { sessionId: string; parts: Array<{ method: PaymentMethod; amount: number; redemptionId?: string }>; discount?: number }) => Promise<ActionResult<{ receiptNumber: string; completed: boolean; paid: number; remaining: number }>>;
+  checkoutBarSale: (params: { items: OrderRequestItem[]; method: PaymentMethod; bonus?: { redemptionId: string; amount: number } }) => Promise<ActionResult<{ order: Order; payment: Payment; payments: Payment[] }>>;
 
   // Mahsulotlar
   addProduct: (product: Omit<Product, 'id'>) => void;
@@ -189,7 +192,7 @@ function clearData() {
   useStore.setState({
     users: [], rooms: [], sessions: [], orders: [], products: [], categories: [], customers: [], expenses: [],
     payments: [], notifications: [], activityLogs: [], bookings: [], inventoryMovements: [],
-    settings: DEFAULT_SETTINGS, syncReady: false, historyFrom: null,
+    settings: DEFAULT_SETTINGS, loyalty: null, syncReady: false, historyFrom: null,
   });
 }
 
@@ -255,6 +258,10 @@ function startSync(profile: User) {
   );
 
   if (role === 'bar' || role === 'admin') {
+    subscribe('loyalty', (ok, fail) => onSnapshot(ref(COL.config, 'config'), snap => {
+      useStore.setState({ loyalty: snap.exists() ? mergeConfig(snap.data() as Partial<LoyaltyConfig>) : null });
+      ok();
+    }, fail), 'loyalty-extra');
     listen<Payment>('payments', query(col('payments'), where('createdAt', '>=', since)), items => { live.payments = items; publish('payments'); }, 'payments-extra');
   }
   if (role === 'admin') {
@@ -440,6 +447,7 @@ export const useStore = create<AppState>()((set, get) => {
     users: [], rooms: [], sessions: [], orders: [], products: [], categories: [], customers: [], expenses: [],
     payments: [], notifications: [], activityLogs: [], bookings: [], inventoryMovements: [],
     settings: DEFAULT_SETTINGS,
+    loyalty: null,
     toasts: [],
 
     // ---- Auth ----
@@ -814,8 +822,9 @@ export const useStore = create<AppState>()((set, get) => {
     paySession: async ({ sessionId, parts, discount }) => {
       const actor = requireRole('bar', 'admin');
       if (!actor) return forbidden();
-      const clean = parts.map(part => ({ method: part.method, amount: Math.round(part.amount) })).filter(part => Number.isFinite(part.amount) && part.amount > 0);
+      const clean = parts.map(part => ({ method: part.method, amount: Math.round(part.amount), redemptionId: part.redemptionId })).filter(part => Number.isFinite(part.amount) && part.amount > 0);
       if (!clean.length) return fail('To‘lov summasini kiriting', 'Введите сумму оплаты');
+      if (clean.some(part => part.method === 'bonus' && !part.redemptionId)) return fail('Cashback to‘lovi tasdiqlanmagan', 'Оплата кэшбэком не подтверждена');
       const paid = clean.reduce((sum, part) => sum + part.amount, 0);
       const orderIds = get().orders.filter(o => o.sessionId === sessionId && o.status !== 'cancelled' && o.status !== 'served').map(o => o.id);
 
@@ -834,14 +843,25 @@ export const useStore = create<AppState>()((set, get) => {
 
         const seq = ((counterSnap.exists() ? (counterSnap.data().receipt as number) : 0) || 0) + 1;
         const receiptNumber = `RCP-${pad(seq, 5)}`;
+        // Chek QR kodi (Telegram cashback): cashback bilan to'langan qismga cashback berilmaydi
+        const claimAmount = clean.filter(part => part.method !== 'bonus').reduce((sum, part) => sum + part.amount, 0);
+        const claimCode = claimAmount > 0 ? makeCode() : undefined;
+        const claimPaymentIds: string[] = [];
         clean.forEach(part => {
           const id = newId('payments');
+          if (claimCode && part.method !== 'bonus') claimPaymentIds.push(id);
           const payment: Payment = {
             id, sessionId, amount: part.amount, method: part.method, type: 'combined', processedBy: actor.id, processedByName: actor.name,
             roomNumber: session.roomNumber, customerName: session.customerName, createdAt, receiptNumber, billId: sessionId, status: 'confirmed',
+            ...(claimCode ? { claimCode } : {}),
+            ...(part.method === 'bonus' && part.redemptionId ? { redemptionId: part.redemptionId } : {}),
           };
           tx.set(ref('payments', id), payment);
         });
+        if (claimCode) {
+          const claim: ClaimDoc = { code: claimCode, receiptNumber, amount: claimAmount, paymentIds: claimPaymentIds, roomNumber: session.roomNumber, waiterName: session.waiterName, cashierName: actor.name, createdAt, status: 'open' };
+          tx.set(ref(COL.claims, claimCode), claim);
+        }
         tx.set(ref('counters', 'main'), { receipt: seq }, { merge: true });
 
         const completed = paid >= bill.remaining;
@@ -863,13 +883,16 @@ export const useStore = create<AppState>()((set, get) => {
       });
     },
 
-    checkoutBarSale: async ({ items, method }) => {
+    checkoutBarSale: async ({ items, method, bonus }) => {
       const actor = requireRole('bar', 'admin');
       if (!actor) return forbidden();
       const need = sanitizeItems(items);
       if (!need.size) return fail('Savat bo‘sh', 'Корзина пуста');
+      const bonusAmount = bonus ? Math.round(bonus.amount) : 0;
+      if (bonus && !(bonusAmount > 0 && bonus.redemptionId)) return fail('Cashback to‘lovi tasdiqlanmagan', 'Оплата кэшбэком не подтверждена');
       const orderId = newId('orders');
       const paymentId = newId('payments');
+      const bonusPaymentId = newId('payments');
       return run(async tx => {
         const counterSnap = await tx.get(ref('counters', 'main'));
         const products = await readProducts(tx, Array.from(need.keys()));
@@ -891,16 +914,24 @@ export const useStore = create<AppState>()((set, get) => {
           id: orderId, orderNumber: `ORD-${pad(orderSeq, 3)}`, source: 'bar', barStaffId: actor.id, barStaffName: actor.name,
           items: orderItems, totalAmount: total, status: 'served', inventoryDeducted: true, createdAt: now, updatedAt: now, servedAt: now,
         };
-        const payment: Payment = {
-          id: paymentId, orderId, amount: total, method, type: 'bar', processedBy: actor.id, processedByName: actor.name,
-          createdAt: now, receiptNumber: `RCP-${pad(receiptSeq, 5)}`, billId: orderId, status: 'confirmed',
-        };
+        if (bonusAmount > total) throw new DomainError(msg('Cashback summasi chek summasidan oshib ketdi', 'Сумма кэшбэка больше суммы чека'));
+        const receiptNumber = `RCP-${pad(receiptSeq, 5)}`;
+        const cashPart = total - bonusAmount;
+        const claimCode = cashPart > 0 ? makeCode() : undefined;
+        const base = { orderId, type: 'bar' as const, processedBy: actor.id, processedByName: actor.name, createdAt: now, receiptNumber, billId: orderId, status: 'confirmed' as const, ...(claimCode ? { claimCode } : {}) };
+        const payments: Payment[] = [];
+        if (cashPart > 0) payments.push({ ...base, id: paymentId, amount: cashPart, method });
+        if (bonusAmount > 0 && bonus) payments.push({ ...base, id: bonusPaymentId, amount: bonusAmount, method: 'bonus', redemptionId: bonus.redemptionId });
         tx.set(ref('orders', orderId), order);
-        tx.set(ref('payments', paymentId), payment);
+        payments.forEach(p => tx.set(ref('payments', p.id), p));
+        if (claimCode) {
+          const claim: ClaimDoc = { code: claimCode, receiptNumber, amount: cashPart, paymentIds: [paymentId], cashierName: actor.name, createdAt: now, status: 'open' };
+          tx.set(ref(COL.claims, claimCode), claim);
+        }
         tx.set(ref('counters', 'main'), { order: orderSeq, receipt: receiptSeq }, { merge: true });
         stockWrites(tx, actor, products, orderItems, order, 'out');
-        txLog(tx, actor, 'bar_sale', `Bar savdosi ${order.orderNumber}: ${formatCurrency(total)} (${payment.receiptNumber})`, 'order', orderId);
-        return { order, payment };
+        txLog(tx, actor, 'bar_sale', `Bar savdosi ${order.orderNumber}: ${formatCurrency(total)} (${receiptNumber})`, 'order', orderId);
+        return { order, payment: payments[0], payments };
       });
     },
 

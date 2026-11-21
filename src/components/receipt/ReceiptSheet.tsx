@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { ReceiptData } from '@/lib/receipt';
 import { FakeQr } from '@/components/receipt/FakeQr';
+import { QrCode } from '@/components/receipt/QrCode';
 import { formatDate, formatDateTime, formatNumber, formatTime } from '@/lib/utils';
 import { paymentMethodLabel } from '@/lib/labels';
 
@@ -135,7 +136,14 @@ export function ReceiptSheet({ data }: { data: ReceiptData }) {
       <div className="r-center">
         {footerLines.map(line => <div key={line} className="r-small">{line}</div>)}
         <div className="r-bold r-gap">{t.thanks}</div>
-        {data.showQr && (
+        {data.showQr && data.qr && (
+          <div className="r-qr">
+            <div className="r-bold r-small">{data.qr.caption}</div>
+            <QrCode value={data.qr.url} sizeMm={Math.min(34, data.paperWidthMm - 20)} />
+            <div className="r-small">{data.qr.sub}</div>
+          </div>
+        )}
+        {data.showQr && !data.qr && (
           <div className="r-qr">
             <FakeQr seed={data.qrSeed} sizeMm={Math.min(30, data.paperWidthMm - 24)} />
           </div>

@@ -12,11 +12,15 @@ import { useNow, useT } from '@/lib/hooks';
 import { BillSummary } from '@/components/shared/BillSummary';
 import { SessionClock } from '@/components/shared/SessionClock';
 import { MoneyInput } from '@/components/ui/MoneyInput';
+import { CashbackApplied, CashbackRedeem } from '@/components/shared/CashbackRedeem';
+import { confirmCashback, redeemCashback, refundCashback } from '@/lib/loyalty/api';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
 import { paymentMethodLabel } from '@/lib/labels';
 import { PaymentMethod } from '@/types';
 
-const methodIcon: Record<PaymentMethod, typeof Banknote> = { cash: Banknote, card: CreditCard, electronic: Smartphone };
+const methodIcon: Record<'cash' | 'card' | 'electronic', typeof Banknote> = { cash: Banknote, card: CreditCard, electronic: Smartphone };
+type Amounts = { cash: number; card: number; electronic: number };
+const EMPTY: Amounts = { cash: 0, card: 0, electronic: 0 };
 
 /** Naqd to'lov uchun tez summalar: aniq qoldiq, yaxlitlangan va oddiy kupyuralar. */
 function quickCash(remaining: number): number[] {
@@ -41,7 +45,8 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   const now = useNow(1000);
   const [pickedId, setPickedId] = useState('');
   const [discount, setDiscount] = useState(0);
-  const [amounts, setAmounts] = useState<Record<PaymentMethod, number>>({ cash: 0, card: 0, electronic: 0 });
+  const [amounts, setAmounts] = useState<Amounts>(EMPTY);
+  const [bonus, setBonus] = useState<CashbackApplied | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const closeAfterReceipt = useRef(false);
   const [paying, setPaying] = useState(false);
@@ -63,22 +68,25 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   // Sessiya tanlanganda saqlangan chegirmani yuklaymiz
   useEffect(() => {
     setDiscount(session?.discount || 0);
-    setAmounts({ cash: 0, card: 0, electronic: 0 });
+    setAmounts(EMPTY);
+    setBonus(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
 
   const bill = session ? calculateCombinedBill(session, orders, payments, settings, { discount, at: now }) : null;
   const remaining = bill?.remaining ?? 0;
+  const bonusAmount = bonus ? Math.min(bonus.amount, remaining) : 0;
+  const dueAfterBonus = Math.max(0, remaining - bonusAmount);
   const nonCash = amounts.card + amounts.electronic;
-  const cashApplied = Math.min(amounts.cash, Math.max(0, remaining - nonCash));
-  const applied = cashApplied + nonCash;
+  const cashApplied = Math.min(amounts.cash, Math.max(0, dueAfterBonus - nonCash));
+  const applied = cashApplied + nonCash + bonusAmount;
   const change = amounts.cash - cashApplied;
-  const tooMuch = nonCash > remaining;
+  const tooMuch = nonCash > dueAfterBonus;
   const canPay = !!session && !!bill && applied > 0 && !tooMuch;
   const willClose = !!bill && applied >= remaining && applied > 0;
 
-  const setAmount = (method: PaymentMethod, value: number) => setAmounts(current => ({ ...current, [method]: value }));
-  const fillRemaining = (method: PaymentMethod) => setAmounts({ cash: 0, card: 0, electronic: 0, [method]: remaining });
+  const setAmount = (method: keyof Amounts, value: number) => setAmounts(current => ({ ...current, [method]: value }));
+  const fillRemaining = (method: keyof Amounts) => setAmounts({ ...EMPTY, [method]: dueAfterBonus });
 
   const printBill = () => {
     if (!session) return;
@@ -89,6 +97,18 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   const pay = async () => {
     if (!session || !bill || !canPay || paying) return;
     setPaying(true);
+    // Cashback: avval mijoz balansidan yechamiz; to'lov bajarilmasa qaytaramiz
+    let redemptionId: string | undefined;
+    if (bonus && bonusAmount > 0) {
+      const redeemed = await redeemCashback({ code: bonus.code, amount: bonusAmount, due: remaining });
+      if (!redeemed.ok) {
+        setPaying(false);
+        addToast({ type: 'error', title: t('Cashback qo‘llanmadi', 'Кэшбэк не применён'), message: redeemed.error });
+        if (redeemed.code === 'CODE_USED' || redeemed.code === 'CODE_EXPIRED' || redeemed.code === 'CODE_INVALID') setBonus(null);
+        return;
+      }
+      redemptionId = redeemed.id;
+    }
     const result = await paySession({
       sessionId: session.id,
       discount,
@@ -96,13 +116,17 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
         { method: 'cash', amount: cashApplied },
         { method: 'card', amount: amounts.card },
         { method: 'electronic', amount: amounts.electronic },
+        ...(redemptionId ? [{ method: 'bonus' as const, amount: bonusAmount, redemptionId }] : []),
       ],
     });
     setPaying(false);
     if (!result.ok) {
+      if (redemptionId) void refundCashback(redemptionId);
       addToast({ type: 'error', title: t('To‘lov qabul qilinmadi', 'Платёж не принят'), message: result.error });
       return;
     }
+    if (redemptionId) void confirmCashback(redemptionId, result.receiptNumber);
+    setBonus(null);
     // Chekni serverdagi yangi ma'lumotdan quramiz (yopilgan sessiya faol ro'yxatdan chiqib ketgan bo'lishi mumkin)
     let data: ReceiptData | null = null;
     try {
@@ -116,7 +140,7 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
       title: result.completed ? t('To‘lov qabul qilindi — xona yopildi', 'Оплата принята — комната закрыта') : t('Qisman to‘lov qabul qilindi', 'Частичная оплата принята'),
       message: `${formatCurrency(result.paid)}${result.remaining > 0 ? ` · ${t('qoldiq', 'остаток')} ${formatCurrency(result.remaining)}` : ''}`,
     });
-    setAmounts({ cash: 0, card: 0, electronic: 0 });
+    setAmounts(EMPTY);
     if (result.completed) { setPickedId(''); closeAfterReceipt.current = true; }
   };
 
@@ -189,6 +213,8 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
                 </div>
               </div>
 
+              <CashbackRedeem due={remaining} applied={bonus} onChange={setBonus} disabled={paying || remaining <= 0} />
+
               <div className="space-y-3">
                 <div className="text-sm font-medium text-zinc-300">{t('To‘lov usuli', 'Способ оплаты')}</div>
                 {(['cash', 'card', 'electronic'] as const).map(method => {
@@ -198,13 +224,13 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
                       <div className="flex items-center gap-2">
                         <div className="flex w-28 shrink-0 items-center gap-2 text-sm text-zinc-300"><Icon className="h-4 w-4 shrink-0 text-gold-400" />{paymentMethodLabel(method, language)}</div>
                         <MoneyInput value={amounts[method]} onChange={value => setAmount(method, value)} placeholder="0" />
-                        <button type="button" onClick={() => fillRemaining(method)} disabled={remaining <= 0} className="btn-secondary shrink-0 px-3 text-xs">{t('To‘liq', 'Всё')}</button>
+                        <button type="button" onClick={() => fillRemaining(method)} disabled={dueAfterBonus <= 0} className="btn-secondary shrink-0 px-3 text-xs">{t('To‘liq', 'Всё')}</button>
                       </div>
-                      {method === 'cash' && remaining > 0 && (
+                      {method === 'cash' && dueAfterBonus > 0 && (
                         <div className="flex flex-wrap gap-1.5 pl-[7.5rem]">
-                          {quickCash(remaining).map(value => (
-                            <button key={value} type="button" onClick={() => setAmounts({ cash: value, card: 0, electronic: 0 })} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${amounts.cash === value && !nonCash ? 'bg-gold-500 text-black' : 'bg-white/5 text-zinc-300 hover:bg-white/10'}`}>
-                              {value === remaining ? t('Aniq', 'Точно') : formatNumber(value)}
+                          {quickCash(dueAfterBonus).map(value => (
+                            <button key={value} type="button" onClick={() => setAmounts({ ...EMPTY, cash: value })} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${amounts.cash === value && !nonCash ? 'bg-gold-500 text-black' : 'bg-white/5 text-zinc-300 hover:bg-white/10'}`}>
+                              {value === dueAfterBonus ? t('Aniq', 'Точно') : formatNumber(value)}
                             </button>
                           ))}
                         </div>
@@ -216,6 +242,7 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
 
               <div className="space-y-1.5 rounded-lg bg-black/25 p-3 text-sm">
                 <div className="flex justify-between"><span className="text-zinc-400">{t('To‘lanadi', 'К оплате')}</span><b>{formatCurrency(remaining)}</b></div>
+                {bonusAmount > 0 && <div className="flex justify-between"><span className="text-zinc-400">{t('Cashback bilan', 'Кэшбэком')}</span><b className="text-green-300">−{formatCurrency(bonusAmount)}</b></div>}
                 <div className="flex justify-between"><span className="text-zinc-400">{t('Qabul qilinadi', 'Принимается')}</span><b className="text-gold-400">{formatCurrency(applied)}</b></div>
                 {change > 0 && <div className="flex items-center justify-between rounded-lg bg-green-500/15 px-3 py-2 text-green-300"><span className="font-semibold">{t('Qaytim', 'Сдача')}</span><b className="text-2xl">{formatCurrency(change)}</b></div>}
                 {tooMuch && <div className="text-red-400">{t('Karta/elektron summasi qoldiqdan oshib ketdi', 'Сумма карты/электронных превышает остаток')}</div>}

@@ -205,6 +205,39 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---------- sodiqlik tizimi (Telegram cashback bot) ----------
+    // Sozlamalar: kassa o'qiydi (chekka QR chiqarish uchun), faqat admin o'zgartiradi. Bot tokeni bu yerda EMAS — serverda.
+    match /loyalty/{id} {
+      allow read: if isBarOrAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+    // Chek QR kodi: kassa to'lov bilan BIR TRANZAKSIYADA yaratadi. Skanerlash/yopishni faqat server (Admin SDK) bajaradi.
+    match /claims/{code} {
+      allow create: if isBarOrAdmin()
+        && request.resource.data.status == 'open'
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.paymentIds is list
+        && request.resource.data.paymentIds.size() >= 1 && request.resource.data.paymentIds.size() <= 5
+        && existsAfter(/databases/$(database)/documents/payments/$(request.resource.data.paymentIds[0]));
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+    // Mijozlar, ularning cashback harakatlari, ishlatilgan summalar — faqat o'qish (yozuvni faqat server qiladi)
+    match /loyaltyUsers/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /loyaltyTx/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /redemptions/{id} { allow read: if isAdmin(); allow write: if false; }
+    // Ommaviy xabar: admin qoralama yaratadi; holatni (yuborilmoqda/tugadi) faqat server yangilaydi
+    match /broadcasts/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && request.resource.data.status == 'draft';
+      allow update: if isAdmin() && resource.data.status == 'draft' && request.resource.data.status == 'draft';
+      allow delete: if isAdmin();
+    }
+    match /ads/{id} { allow read, write: if isAdmin(); }
+    // Bot orqali admin yuborgan rasm/video (file_id) kutubxonasi
+    match /loyaltyMedia/{id} { allow read, delete: if isAdmin(); allow create, update: if false; }
+
     // ---------- faqat admin ----------
     match /customers/{id} { allow read, write: if isAdmin(); }
     match /bookings/{id} { allow read, write: if isAdmin(); }

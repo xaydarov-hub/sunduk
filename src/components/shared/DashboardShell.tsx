@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   BarChart3, Bell, CalendarDays, ChevronLeft, ChevronRight, DoorOpen, History,
   LayoutDashboard, LogOut, Menu, Package, ReceiptText, Settings, ShoppingCart,
-  Tags, Users, UserCog, WalletCards, UtensilsCrossed, X, Receipt, Boxes, Banknote, KeyRound, Loader2, Printer,
+  Tags, Users, UserCog, WalletCards, UtensilsCrossed, X, Receipt, Boxes, Banknote, KeyRound, Loader2, Printer, Gift,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/lib/store';
@@ -33,6 +33,7 @@ const adminNav: NavItem[] = [
   { href: '/admin/customers', uz: 'Mijozlar', ru: 'Клиенты', icon: Users },
   { href: '/admin/reports', uz: 'Hisobotlar', ru: 'Отчёты', icon: BarChart3 },
   { href: '/admin/expenses', uz: 'Xarajatlar', ru: 'Расходы', icon: Banknote },
+  { href: '/admin/loyalty', uz: 'Sodiqlik', ru: 'Лояльность', icon: Gift },
   { href: '/admin/staff', uz: 'Xodimlar', ru: 'Сотрудники', icon: UserCog },
   { href: '/admin/history', uz: 'Faoliyat', ru: 'Активность', icon: History },
   { href: '/admin/settings', uz: 'Sozlamalar', ru: 'Настройки', icon: Settings },

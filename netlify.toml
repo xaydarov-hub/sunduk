@@ -5,6 +5,12 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  # firebase-admin (gRPC va dinamik import) bundle qilinmaydi — to'liq paket sifatida yuboriladi
+  external_node_modules = ["firebase-admin"]
+
 # Xavfsizlik sarlavhalari
 [[headers]]
   for = "/*"

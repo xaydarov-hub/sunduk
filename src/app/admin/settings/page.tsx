@@ -82,7 +82,7 @@ export default function SettingsPage() {
             ))}
           </div>
         </div>
-        <Toggle checked={draft.showReceiptQr} onChange={value => set('showReceiptQr', value)} label={t('Chek pastida QR ko‘rsatilsin', 'Показывать QR внизу чека')} hint={t('Bu bezak QR — skanerlanmaydi, hech narsani tasdiqlamaydi', 'Это декоративный QR — не сканируется и ничего не подтверждает')} />
+        <Toggle checked={draft.showReceiptQr} onChange={value => set('showReceiptQr', value)} label={t('Chek pastida QR ko‘rsatilsin', 'Показывать QR внизу чека')} hint={t('Sodiqlik (Telegram cashback) yoqilgan bo‘lsa — haqiqiy cashback QR; aks holda bezak QR (skanerlanmaydi)', 'Если включена лояльность — настоящий QR для кэшбэка; иначе декоративный QR (не сканируется)')} />
         <label className="block text-sm text-zinc-400">{t('Chek pastki matni (har qator alohida)', 'Текст внизу чека (каждая строка отдельно)')}
           <textarea rows={3} value={draft.receiptFooter} onChange={event => set('receiptFooter', event.target.value)} className="input-dark mt-1" />
         </label>
