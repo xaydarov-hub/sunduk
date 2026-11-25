@@ -22,6 +22,7 @@ import {
   InventoryMovement, Notification, ActivityLog, Settings, Language, OrderStatus, PaymentMethod, UserRole,
 } from '@/types';
 import { calculateCombinedBill, snapshotBill } from '@/lib/calculations';
+import { CustomItemInput, cleanCustomItem } from '@/lib/customItem';
 import { formatCurrency, generateId, isStockTracked as isTracked } from '@/lib/utils';
 import { nowIso, nowMs, syncClock } from '@/lib/clock';
 import {
@@ -44,6 +45,7 @@ export interface Toast {
 }
 
 export interface OrderRequestItem { productId: string; quantity: number }
+export type { CustomItemInput };
 type NewNotification = Omit<Notification, 'id' | 'createdAt' | 'isRead' | 'readBy'>;
 
 interface AppState {
@@ -111,7 +113,9 @@ interface AppState {
 
   // To'lovlar
   paySession: (params: { sessionId: string; parts: Array<{ method: PaymentMethod; amount: number; redemptionId?: string }>; discount?: number }) => Promise<ActionResult<{ receiptNumber: string; completed: boolean; paid: number; remaining: number }>>;
-  checkoutBarSale: (params: { items: OrderRequestItem[]; method: PaymentMethod; bonus?: { redemptionId: string; amount: number } }) => Promise<ActionResult<{ order: Order; payment: Payment; payments: Payment[] }>>;
+  checkoutBarSale: (params: { items: OrderRequestItem[]; custom?: CustomItemInput[]; method: PaymentMethod; bonus?: { redemptionId: string; amount: number } }) => Promise<ActionResult<{ order: Order; payment: Payment; payments: Payment[] }>>;
+  /** Xona hisobiga menyudan tashqari narsa qo'shish (kassir/admin): nom + narx + soni. */
+  addCustomItem: (params: { sessionId: string } & CustomItemInput) => Promise<ActionResult<{ order: Order }>>;
 
   // Mahsulotlar
   addProduct: (product: Omit<Product, 'id'>) => void;
@@ -370,6 +374,15 @@ function txNotify(tx: Transaction, notification: NewNotification) {
   const id = newId('notifications');
   tx.set(ref('notifications', id), { ...notification, id, createdAt: nowIso(), readBy: [] });
 }
+
+/** Aksiya narxi bo'lsa (eski narx yangisidan katta) — buyurtma pozitsiyasiga nusxalanadigan maydon. */
+const oldPriceField = (product: Product): { oldUnitPrice?: number } =>
+  product.oldPrice && product.oldPrice > product.salePrice ? { oldUnitPrice: product.oldPrice } : {};
+
+const toCustomOrderItem = (item: { name: string; price: number; quantity: number }): OrderItem => {
+  const id = generateId();
+  return { id, productId: `custom:${id}`, productName: item.name, productNameRu: item.name, quantity: item.quantity, unitPrice: item.price, totalPrice: item.quantity * item.price, custom: true };
+};
 
 const sanitizeItems = (items: OrderRequestItem[]): Map<string, number> => {
   const need = new Map<string, number>();
@@ -707,13 +720,14 @@ export const useStore = create<AppState>()((set, get) => {
         for (const [productId, quantity] of Array.from(need.entries())) {
           const product = products.get(productId);
           if (!product || !product.isActive) throw new DomainError(msg('Mahsulot topilmadi yoki o‘chirilgan', 'Товар не найден или отключён'));
+          if (!(product.salePrice > 0)) throw new DomainError(msg(`"${product.name}" narxi kiritilmagan`, `У "${product.nameRu}" не указана цена`));
           if (isTracked(product) && product.currentStock < quantity) {
             throw new DomainError(msg(`"${product.name}" yetarli emas (qoldiq: ${product.currentStock} ${product.unit})`, `"${product.nameRu}" недостаточно (остаток: ${product.currentStock} ${product.unit})`));
           }
-          orderItems.push({ id: generateId(), productId, productName: product.name, productNameRu: product.nameRu, quantity, unitPrice: product.salePrice, totalPrice: quantity * product.salePrice });
+          orderItems.push({ id: generateId(), productId, productName: product.name, productNameRu: product.nameRu, quantity, unitPrice: product.salePrice, totalPrice: quantity * product.salePrice, ...oldPriceField(product) });
         }
         const total = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
-        const seq = ((counterSnap.exists() ? (counterSnap.data().order as number) : 0) || 0) + 1;
+        const seq =((counterSnap.exists() ? (counterSnap.data().order as number) : 0) || 0) + 1;
         const now = nowIso();
         const order: Order = {
           id: orderId, orderNumber: `ORD-${pad(seq, 3)}`, source: 'room', sessionId, roomId: session.roomId, roomNumber: session.roomNumber,
@@ -729,6 +743,34 @@ export const useStore = create<AppState>()((set, get) => {
           message: `${session.roomNumber} xonasidan yangi buyurtma`, messageRu: `Новый заказ из комнаты ${session.roomNumber}`, type: 'info', targetRole: 'bar',
         });
         txLog(tx, actor, 'order_created', `${session.roomNumber}: ${order.orderNumber} — ${formatCurrency(total)}`, 'order', orderId);
+        return { order };
+      });
+    },
+
+    addCustomItem: async ({ sessionId, name, price, quantity }) => {
+      const actor = requireRole('bar', 'admin');
+      if (!actor) return forbidden();
+      const item = cleanCustomItem({ name, price, quantity });
+      if (!item) return fail('Nomi va narxini to‘g‘ri kiriting (narx 1 dan katta)', 'Введите корректные название и цену');
+      const orderId = newId('orders');
+      return run(async tx => {
+        const sessionRef = ref('sessions', sessionId);
+        const sessionSnap = await tx.get(sessionRef);
+        const counterSnap = await tx.get(ref('counters', 'main'));
+        if (!sessionSnap.exists() || sessionSnap.data().status !== 'active') throw new DomainError(msg('Xona sessiyasi ochiq emas (to‘langan bo‘lishi mumkin)', 'Сессия комнаты не активна (возможно, уже оплачена)'));
+        const session = asDoc<RoomSession>(sessionSnap);
+        const orderItem = toCustomOrderItem(item);
+        const seq = ((counterSnap.exists() ? (counterSnap.data().order as number) : 0) || 0) + 1;
+        const now = nowIso();
+        const order: Order = {
+          id: orderId, orderNumber: `ORD-${pad(seq, 3)}`, source: 'room', sessionId, roomId: session.roomId, roomNumber: session.roomNumber,
+          barStaffId: actor.id, barStaffName: actor.name, items: [orderItem], totalAmount: orderItem.totalPrice, status: 'served', customOnly: true,
+          inventoryDeducted: false, createdAt: now, updatedAt: now, servedAt: now,
+        };
+        tx.set(ref('orders', orderId), order);
+        tx.update(sessionRef, { itemsTotal: (session.itemsTotal ?? 0) + orderItem.totalPrice });
+        tx.set(ref('counters', 'main'), { order: seq }, { merge: true });
+        txLog(tx, actor, 'custom_item_added', `${session.roomNumber}: ${item.quantity} × ${item.name} = ${formatCurrency(orderItem.totalPrice)} (menyudan tashqari)`, 'order', orderId);
         return { order };
       });
     },
@@ -883,11 +925,15 @@ export const useStore = create<AppState>()((set, get) => {
       });
     },
 
-    checkoutBarSale: async ({ items, method, bonus }) => {
+    checkoutBarSale: async ({ items, custom, method, bonus }) => {
       const actor = requireRole('bar', 'admin');
       if (!actor) return forbidden();
       const need = sanitizeItems(items);
-      if (!need.size) return fail('Savat bo‘sh', 'Корзина пуста');
+      const customItems = (custom ?? []).map(cleanCustomItem);
+      if (customItems.some(c => c === null)) return fail('Menyudan tashqari pozitsiyada nom yoki narx noto‘g‘ri', 'В позиции вне меню неверно указаны название или цена');
+      const cleanCustom = customItems.filter((c): c is NonNullable<typeof c> => c !== null);
+      if (!need.size && !cleanCustom.length) return fail('Savat bo‘sh', 'Корзина пуста');
+      if (cleanCustom.length > 20) return fail('Menyudan tashqari pozitsiyalar ko‘pi bilan 20 ta', 'Позиций вне меню не больше 20');
       const bonusAmount = bonus ? Math.round(bonus.amount) : 0;
       if (bonus && !(bonusAmount > 0 && bonus.redemptionId)) return fail('Cashback to‘lovi tasdiqlanmagan', 'Оплата кэшбэком не подтверждена');
       const orderId = newId('orders');
@@ -900,11 +946,15 @@ export const useStore = create<AppState>()((set, get) => {
         for (const [productId, quantity] of Array.from(need.entries())) {
           const product = products.get(productId);
           if (!product || !product.isActive) throw new DomainError(msg('Mahsulot topilmadi yoki o‘chirilgan', 'Товар не найден или отключён'));
+          if (!(product.salePrice > 0)) throw new DomainError(msg(`"${product.name}" narxi kiritilmagan`, `У "${product.nameRu}" не указана цена`));
           if (isTracked(product) && product.currentStock < quantity) {
             throw new DomainError(msg(`"${product.name}" yetarli emas (qoldiq: ${product.currentStock} ${product.unit})`, `"${product.nameRu}" недостаточно (остаток: ${product.currentStock} ${product.unit})`));
           }
-          orderItems.push({ id: generateId(), productId, productName: product.name, productNameRu: product.nameRu, quantity, unitPrice: product.salePrice, totalPrice: quantity * product.salePrice });
+          orderItems.push({ id: generateId(), productId, productName: product.name, productNameRu: product.nameRu, quantity, unitPrice: product.salePrice, totalPrice: quantity * product.salePrice, ...oldPriceField(product) });
         }
+        // Ombor harakati faqat haqiqiy mahsulotlar uchun; menyudan tashqari pozitsiyalar qoldiqqa tegmaydi
+        const stockItems = [...orderItems];
+        cleanCustom.forEach(c => orderItems.push(toCustomOrderItem(c)));
         const total = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
         const counter = counterSnap.exists() ? counterSnap.data() : {};
         const orderSeq = ((counter.order as number) || 0) + 1;
@@ -929,8 +979,9 @@ export const useStore = create<AppState>()((set, get) => {
           tx.set(ref(COL.claims, claimCode), claim);
         }
         tx.set(ref('counters', 'main'), { order: orderSeq, receipt: receiptSeq }, { merge: true });
-        stockWrites(tx, actor, products, orderItems, order, 'out');
-        txLog(tx, actor, 'bar_sale', `Bar savdosi ${order.orderNumber}: ${formatCurrency(total)} (${receiptNumber})`, 'order', orderId);
+        stockWrites(tx, actor, products, stockItems, order, 'out');
+        const customNote = cleanCustom.length ? ` · menyudan tashqari: ${cleanCustom.map(c => `${c.quantity}×${c.name}=${formatCurrency(c.quantity * c.price)}`).join(', ')}` : '';
+        txLog(tx, actor, 'bar_sale', `Bar savdosi ${order.orderNumber}: ${formatCurrency(total)} (${receiptNumber})${customNote}`, 'order', orderId);
         return { order, payment: payments[0], payments };
       });
     },
@@ -1035,6 +1086,11 @@ export const useStore = create<AppState>()((set, get) => {
         patch.durationOptions = options.length ? options : [1, 2, 3];
       }
       if (patch.paperWidthMm !== undefined && ![58, 80, 88].includes(patch.paperWidthMm)) patch.paperWidthMm = 88;
+      if (patch.serviceRate !== undefined) {
+        const rate = Number(patch.serviceRate);
+        patch.serviceRate = Number.isFinite(rate) ? Math.max(0, Math.min(50, Math.round(rate * 100) / 100)) : 0;
+      }
+      if (patch.serviceBase !== undefined && !['all', 'items'].includes(patch.serviceBase)) patch.serviceBase = 'all';
       try { await setDoc(ref('settings', 'main'), patch, { merge: true }); } catch (error) { get().addToast({ type: 'error', title: explain(error), message: '' }); }
     },
 

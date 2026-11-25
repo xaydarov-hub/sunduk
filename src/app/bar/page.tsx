@@ -8,7 +8,8 @@ import { formatCurrency, isLowStock, isSellable, isStockTracked } from '@/lib/ut
 import { paymentMethodLabel, PAYMENT_METHODS } from '@/lib/labels';
 import { useT } from '@/lib/hooks';
 import { MoneyInput } from '@/components/ui/MoneyInput';
-import { Price } from '@/components/ui/Price';
+import { ProductPrice } from '@/components/ui/Price';
+import { CustomItemDialog, CustomItemValue } from '@/components/shared/CustomItemDialog';
 import { useDevicePrefs } from '@/lib/devicePrefs';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
 import { PaymentMethod } from '@/types';
@@ -29,6 +30,9 @@ export default function BarPosPage() {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [bonus, setBonus] = useState<CashbackApplied | null>(null);
   const [busy, setBusy] = useState(false);
+  /** "=" tugmasi: menyudan tashqari qo'lda kiritilgan pozitsiyalar (jarima va h.k.). */
+  const [customItems, setCustomItems] = useState<Array<CustomItemValue & { id: string }>>([]);
+  const [customOpen, setCustomOpen] = useState(false);
 
   const activeCategories = useMemo(() => categories.filter(c => c.isActive !== false).sort((a, b) => (a.order || 0) - (b.order || 0)), [categories]);
   const filtered = useMemo(() => {
@@ -37,8 +41,9 @@ export default function BarPosPage() {
   }, [products, category, search]);
 
   const items = products.filter(p => cart[p.id] > 0).map(p => ({ product: p, quantity: cart[p.id] }));
-  const total = items.reduce((sum, i) => sum + i.quantity * i.product.salePrice, 0);
-  const count = items.reduce((sum, i) => sum + i.quantity, 0);
+  const total = items.reduce((sum, i) => sum + i.quantity * i.product.salePrice, 0) + customItems.reduce((sum, c) => sum + c.quantity * c.price, 0);
+  const count = items.reduce((sum, i) => sum + i.quantity, 0) + customItems.reduce((sum, c) => sum + c.quantity, 0);
+  const hasCart = items.length > 0 || customItems.length > 0;
   const bonusAmount = bonus ? Math.min(bonus.amount, total) : 0;
   const cashDue = total - bonusAmount;
   const change = method === 'cash' && tendered > cashDue ? tendered - cashDue : 0;
@@ -72,7 +77,7 @@ export default function BarPosPage() {
   };
 
   const checkout = async () => {
-    if (!items.length || busy) return;
+    if (!hasCart || busy) return;
     setBusy(true);
     // Cashback: avval mijoz balansidan yechiladi; savdo bajarilmasa qaytariladi
     let redemptionId: string | undefined;
@@ -86,7 +91,12 @@ export default function BarPosPage() {
       }
       redemptionId = redeemed.id;
     }
-    const result = await checkoutBarSale({ items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })), method, bonus: redemptionId ? { redemptionId, amount: bonusAmount } : undefined });
+    const result = await checkoutBarSale({
+      items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })),
+      custom: customItems.map(({ name, price, quantity }) => ({ name, price, quantity })),
+      method,
+      bonus: redemptionId ? { redemptionId, amount: bonusAmount } : undefined,
+    });
     setBusy(false);
     if (!result.ok) {
       if (redemptionId) void refundCashback(redemptionId);
@@ -98,6 +108,7 @@ export default function BarPosPage() {
     const data = buildBarReceipt({ order: result.order, payment: result.payment, payments: result.payments, settings: state.settings, users: state.users, lang: state.language });
     setReceipt({ ...data, change: change > 0 ? change : undefined });
     setCart({});
+    setCustomItems([]);
     setBonus(null);
     setTendered(0);
     addToast({ type: 'success', title: t('Savdo yakunlandi', 'Продажа завершена'), message: `${result.payment.receiptNumber} · ${formatCurrency(result.payment.amount)}` });
@@ -136,7 +147,7 @@ export default function BarPosPage() {
                   <div className="line-clamp-2 min-h-10 text-sm font-semibold">{nameOf(p)}</div>
                   {qty > 0 && <span className="rounded-full bg-gold-500 px-2 py-0.5 text-xs font-bold text-black">{qty}</span>}
                 </div>
-                <div className="mt-2 text-lg font-bold text-gold-400"><Price amount={p.salePrice} /></div>
+                <div className="mt-2 text-lg font-bold text-gold-400"><ProductPrice product={p} /></div>
                 <div className={`mt-1 text-xs ${!sellable ? 'font-semibold text-red-400' : isLowStock(p) ? 'text-amber-400' : 'text-zinc-500'}`}>
                   {!sellable ? t('Tugagan', 'Нет в наличии') : isStockTracked(p) ? `${p.currentStock} ${p.unit}` : ' '}
                 </div>
@@ -147,7 +158,12 @@ export default function BarPosPage() {
       </div>
 
       <aside className="mt-5 w-full shrink-0 rounded-xl border border-white/5 bg-[#171717] lg:sticky lg:top-20 lg:mt-0 lg:w-96 lg:self-start">
-        <div className="flex items-center gap-2 border-b border-white/5 p-4 font-semibold"><ShoppingCart className="h-5 w-5 text-gold-400" />{t('Savat', 'Корзина')}<span className="ml-auto text-xs text-zinc-500">{count}</span></div>
+        <div className="flex items-center gap-2 border-b border-white/5 p-4 font-semibold">
+          <ShoppingCart className="h-5 w-5 text-gold-400" />{t('Savat', 'Корзина')}<span className="text-xs font-normal text-zinc-500">{count}</span>
+          <button type="button" onClick={() => setCustomOpen(true)} disabled={busy} title={t('Menyudan tashqari qo‘shish', 'Добавить вне меню')} className="ml-auto flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1.5 text-sm hover:bg-white/10">
+            <span className="text-lg font-black leading-none text-gold-400">=</span><span className="text-xs text-zinc-300">{t('Boshqa', 'Другое')}</span>
+          </button>
+        </div>
         <div className="max-h-[40vh] space-y-2 overflow-y-auto p-3">
           {items.map(({ product, quantity }) => (
             <div key={product.id} className="rounded-lg bg-white/[.03] p-3">
@@ -163,7 +179,19 @@ export default function BarPosPage() {
               </div>
             </div>
           ))}
-          {!items.length && <p className="p-8 text-center text-sm text-zinc-500">{t('Savat bo‘sh', 'Корзина пуста')}</p>}
+          {customItems.map(item => (
+            <div key={item.id} className="rounded-lg border border-dashed border-gold-500/40 bg-white/[.03] p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-sm font-medium"><span className="mr-1.5 rounded bg-gold-500/20 px-1.5 py-0.5 text-[10px] font-black text-gold-400">=</span>{item.name}</div>
+                <button onClick={() => setCustomItems(prev => prev.filter(c => c.id !== item.id))} aria-label="Remove"><Trash2 className="h-4 w-4 text-zinc-500 hover:text-red-400" /></button>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-sm">
+                <span className="text-zinc-400">{item.quantity} × {formatCurrency(item.price)}</span>
+                <span className="font-semibold text-gold-400">{formatCurrency(item.quantity * item.price)}</span>
+              </div>
+            </div>
+          ))}
+          {!hasCart && <p className="p-8 text-center text-sm text-zinc-500">{t('Savat bo‘sh', 'Корзина пуста')}</p>}
         </div>
         <div className="space-y-3 border-t border-white/5 p-4">
           <div className="grid grid-cols-3 gap-2">
@@ -176,7 +204,7 @@ export default function BarPosPage() {
               );
             })}
           </div>
-          <CashbackRedeem due={total} applied={bonus} onChange={setBonus} disabled={busy || !items.length} />
+          <CashbackRedeem due={total} applied={bonus} onChange={setBonus} disabled={busy || !hasCart} />
           {method === 'cash' && cashDue > 0 && (
             <div>
               <div className="mb-1 text-xs text-zinc-500">{t('Berilgan summa (qaytim uchun)', 'Получено (для сдачи)')}</div>
@@ -186,9 +214,11 @@ export default function BarPosPage() {
           )}
           {bonusAmount > 0 && <div className="flex items-center justify-between text-sm text-green-300"><span>{t('Cashback bilan', 'Кэшбэком')}</span><span>−{formatCurrency(bonusAmount)}</span></div>}
           <div className="flex items-center justify-between text-lg font-bold"><span>{bonusAmount > 0 ? t('To‘lanadi', 'К оплате') : t('Jami', 'Итого')}</span><span className="text-gold-400">{formatCurrency(cashDue)}</span></div>
-          <button disabled={!items.length || busy} onClick={checkout} className="btn-gold min-h-14 w-full text-base">{t('TO‘LASH VA CHEK', 'ОПЛАТИТЬ И ЧЕК')}</button>
+          <button disabled={!hasCart || busy} onClick={checkout} className="btn-gold min-h-14 w-full text-base">{t('TO‘LASH VA CHEK', 'ОПЛАТИТЬ И ЧЕК')}</button>
         </div>
       </aside>
+
+      <CustomItemDialog open={customOpen} onClose={() => setCustomOpen(false)} onSubmit={item => { setCustomItems(prev => [...prev, { ...item, id: `c${Date.now()}${prev.length}` }]); }} />
 
       <ReceiptModal data={receipt} onClose={() => setReceipt(null)} onPrint={logPrint} autoPrint={autoPrintReceipt} />
     </div>

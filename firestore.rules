@@ -138,10 +138,11 @@ service cloud.firestore {
             && request.resource.data.bookedHours >= resource.data.bookedHours
             && request.resource.data.bookedHours <= 24
             && request.resource.data.itemsTotal >= resource.data.itemsTotal)
-        // kassir: to'lov, chegirma va yopish
+        // kassir: to'lov, chegirma, yopish va menyudan tashqari pozitsiya qo'shish (buyurtma summasini faqat oshiradi)
         || (isBar() && resource.data.status == 'active'
-            && changedOnly(['paidTotal', 'discount', 'status', 'endTime', 'finalBill'])
+            && changedOnly(['paidTotal', 'discount', 'status', 'endTime', 'finalBill', 'itemsTotal'])
             && request.resource.data.paidTotal >= resource.data.paidTotal
+            && request.resource.data.itemsTotal >= resource.data.itemsTotal
             && (request.resource.data.status == 'active'
                 || (request.resource.data.status == 'paid' && request.resource.data.finalBill.total <= request.resource.data.paidTotal)));
       allow delete: if false;
@@ -163,7 +164,19 @@ service cloud.firestore {
         || ((isBar() || isAdmin())
             && request.resource.data.source == 'bar'
             && request.resource.data.status == 'served'
-            && request.resource.data.barStaffId == request.auth.uid);
+            && request.resource.data.barStaffId == request.auth.uid)
+        // xona hisobiga menyudan tashqari narsa (jarima va h.k.): kassir/admin, aynan 1 ta "custom" pozitsiya, darhol "yetkazilgan"
+        || ((isBar() || isAdmin())
+            && request.resource.data.source == 'room'
+            && request.resource.data.status == 'served'
+            && request.resource.data.customOnly == true
+            && request.resource.data.barStaffId == request.auth.uid
+            && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.status == 'active'
+            && request.resource.data.items.size() == 1
+            && request.resource.data.items[0].custom == true
+            && request.resource.data.items[0].productId.matches('custom:.*')
+            && request.resource.data.items[0].totalPrice is number && request.resource.data.items[0].totalPrice > 0
+            && !('cancelledAt' in request.resource.data));
       // bekor qilish va pozitsiyani o'zgartirish — FAQAT admin
       allow update: if isAdmin()
         || ((isBar() || isWaiter()) && changedOnly(['status', 'updatedAt', 'servedAt']) && validOrderStep());

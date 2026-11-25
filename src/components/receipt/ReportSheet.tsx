@@ -9,14 +9,14 @@ const text = {
   uz: {
     title: 'KASSA HISOBOTI', date: 'Sana', scope: 'Kassir', printed: 'Chop etildi',
     methods: 'TO‘LOV USULLARI', total: 'JAMI', receipts: 'ta chek',
-    sources: 'MANBALAR', room: 'Xona ijarasi', items: 'Taom va ichimlik', discounts: 'Chegirmalar',
+    sources: 'MANBALAR', room: 'Xona ijarasi', items: 'Taom va ichimlik', service: 'Xizmat haqi', discounts: 'Chegirmalar',
     split: 'TURLARI', roomPay: 'Xona to‘lovlari', barSales: 'Bar savdosi',
     cashiers: 'KASSIRLAR', open: 'OCHIQ XONALAR', unpaid: 'To‘lanmagan qoldiq', sign: 'Kassir imzosi',
   },
   ru: {
     title: 'КАССОВЫЙ ОТЧЁТ', date: 'Дата', scope: 'Кассир', printed: 'Напечатано',
     methods: 'СПОСОБЫ ОПЛАТЫ', total: 'ИТОГО', receipts: 'чек.',
-    sources: 'ИСТОЧНИКИ', room: 'Аренда комнат', items: 'Блюда и напитки', discounts: 'Скидки',
+    sources: 'ИСТОЧНИКИ', room: 'Аренда комнат', items: 'Блюда и напитки', service: 'Обслуживание', discounts: 'Скидки',
     split: 'ПО ТИПАМ', roomPay: 'Оплаты комнат', barSales: 'Продажи бара',
     cashiers: 'КАССИРЫ', open: 'ОТКРЫТЫЕ КОМНАТЫ', unpaid: 'Неоплаченный остаток', sign: 'Подпись кассира',
   },
@@ -68,6 +68,7 @@ export function ReportSheet({ report }: { report: DailyReport }) {
           <div className="r-section">{t.sources}</div>
           <Row left={t.room} right={formatNumber(report.roomRevenue)} />
           <Row left={t.items} right={formatNumber(report.itemsRevenue)} />
+          {report.serviceRevenue > 0 && <Row left={t.service} right={formatNumber(report.serviceRevenue)} />}
           {report.discounts > 0 && <Row left={t.discounts} right={`-${formatNumber(report.discounts)}`} />}
         </>
       )}

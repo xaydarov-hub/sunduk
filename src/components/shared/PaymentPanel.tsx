@@ -13,6 +13,7 @@ import { BillSummary } from '@/components/shared/BillSummary';
 import { SessionClock } from '@/components/shared/SessionClock';
 import { MoneyInput } from '@/components/ui/MoneyInput';
 import { CashbackApplied, CashbackRedeem } from '@/components/shared/CashbackRedeem';
+import { CustomItemDialog, CustomItemValue } from '@/components/shared/CustomItemDialog';
 import { confirmCashback, redeemCashback, refundCashback } from '@/lib/loyalty/api';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
 import { paymentMethodLabel } from '@/lib/labels';
@@ -40,7 +41,7 @@ interface PaymentPanelProps {
 export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   const t = useT();
   const language = useStore(state => state.language);
-  const { sessions, orders, payments, settings, users, currentUser, notifications, paySession, logActivity, addToast } = useStore();
+  const { sessions, orders, payments, settings, users, currentUser, notifications, paySession, addCustomItem, logActivity, addToast } = useStore();
   const autoPrintReceipt = useDevicePrefs(state => state.autoPrintReceipt);
   const now = useNow(1000);
   const [pickedId, setPickedId] = useState('');
@@ -50,6 +51,7 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const closeAfterReceipt = useRef(false);
   const [paying, setPaying] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
 
   // Ofitsiant "kassaga to'lov so'rovi" yuborgan xonalar (so'nggi 60 daqiqa) — ro'yxatda birinchi
   const requestedIds = useMemo(
@@ -87,6 +89,18 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
 
   const setAmount = (method: keyof Amounts, value: number) => setAmounts(current => ({ ...current, [method]: value }));
   const fillRemaining = (method: keyof Amounts) => setAmounts({ ...EMPTY, [method]: dueAfterBonus });
+
+  /** "=" tugmasi: menyudan tashqari narsani (jarima va h.k.) xona hisobiga qo'shadi. */
+  const addCustom = async (item: CustomItemValue) => {
+    if (!session) return false;
+    const result = await addCustomItem({ sessionId: session.id, ...item });
+    if (!result.ok) {
+      addToast({ type: 'error', title: t('Qo‘shilmadi', 'Не добавлено'), message: result.error });
+      return false;
+    }
+    addToast({ type: 'success', title: t('Hisobga qo‘shildi', 'Добавлено в счёт'), message: `${item.quantity} × ${item.name} — ${formatCurrency(item.quantity * item.price)}` });
+    return true;
+  };
 
   const printBill = () => {
     if (!session) return;
@@ -199,6 +213,10 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
               </div>
               <SessionClock session={session} size="sm" />
               <BillSummary bill={bill} />
+              <button type="button" onClick={() => setCustomOpen(true)} disabled={paying} className="btn-secondary flex min-h-12 w-full items-center justify-center gap-2.5 text-sm">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gold-500/20 text-xl font-black leading-none text-gold-400">=</span>
+                {t('Menyudan tashqari qo‘shish (jarima va h.k.)', 'Добавить вне меню (штраф и т.п.)')}
+              </button>
             </div>
 
             <div className="stat-card space-y-4">
@@ -257,6 +275,7 @@ export function PaymentPanel({ fixedSessionId, onPaid }: PaymentPanelProps) {
         )}
       </section>
 
+      <CustomItemDialog open={customOpen} onClose={() => setCustomOpen(false)} onSubmit={addCustom} />
       <ReceiptModal data={receipt} onClose={closeReceipt} onPrint={logPrint} autoPrint={autoPrintReceipt} />
     </div>
   );

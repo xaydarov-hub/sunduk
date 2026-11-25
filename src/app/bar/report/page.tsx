@@ -80,6 +80,7 @@ export default function BarReportPage() {
             <>
               <div className="flex justify-between border-t border-white/10 pt-2"><span className="text-zinc-400">{t('Xona ijarasi', 'Аренда комнат')}</span><b>{formatCurrency(report.roomRevenue)}</b></div>
               <div className="flex justify-between"><span className="text-zinc-400">{t('Taom va ichimlik', 'Блюда и напитки')}</span><b>{formatCurrency(report.itemsRevenue)}</b></div>
+              {report.serviceRevenue > 0 && <div className="flex justify-between"><span className="text-zinc-400">{t('Xizmat haqi', 'Обслуживание')}</span><b>{formatCurrency(report.serviceRevenue)}</b></div>}
               {report.discounts > 0 && <div className="flex justify-between text-green-400"><span>{t('Chegirmalar', 'Скидки')}</span><b>-{formatCurrency(report.discounts)}</b></div>}
               <div className="flex justify-between border-t border-white/10 pt-2"><span className="text-zinc-400">{t('Hozir ochiq xonalar', 'Открытые комнаты сейчас')} ({report.openRooms})</span><b className="text-amber-400">{formatCurrency(report.openBalance)}</b></div>
             </>

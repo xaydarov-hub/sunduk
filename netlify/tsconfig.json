@@ -16,7 +16,12 @@
     "types": [
       "node"
     ],
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@/*": [
+        "../src/*"
+      ]
+    }
   },
   "include": [
     "./**/*.ts",

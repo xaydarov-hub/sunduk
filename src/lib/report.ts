@@ -21,6 +21,8 @@ export interface DailyReport {
   barSales: { count: number; amount: number };
   roomRevenue: number;
   itemsRevenue: number;
+  /** Xizmat haqi (ofitsiant uslugasi) — yopilgan xona hisoblaridan. */
+  serviceRevenue: number;
   discounts: number;
   byCashier: Array<{ name: string; receipts: number; total: number }>;
   openRooms: number;
@@ -54,6 +56,7 @@ export function buildDailyReport({ date, payments, sessions, orders, settings, l
   const closed = cashierId ? [] : sessions.filter(s => s.status === 'paid' && s.finalBill && s.endTime && localDateKey(s.endTime) === date);
   const roomRevenue = closed.reduce((s, x) => s + (x.finalBill?.roomAmount || 0), 0);
   const discounts = closed.reduce((s, x) => s + (x.finalBill?.discount || 0), 0);
+  const serviceRevenue = closed.reduce((s, x) => s + (x.finalBill?.service || 0), 0);
   const itemsRevenue = closed.reduce((s, x) => s + (x.finalBill?.barAmount || 0), 0) + sum(barPays);
 
   const cashierMap = new Map<string, Payment[]>();
@@ -80,6 +83,7 @@ export function buildDailyReport({ date, payments, sessions, orders, settings, l
     barSales: { count: receipts(barPays), amount: sum(barPays) },
     roomRevenue,
     itemsRevenue,
+    serviceRevenue,
     discounts,
     byCashier: Array.from(cashierMap.entries()).map(([name, list]) => ({ name, receipts: receipts(list), total: sum(list) })).sort((a, b) => b.total - a.total),
     openRooms: open.length,

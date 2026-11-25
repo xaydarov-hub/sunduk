@@ -73,6 +73,27 @@ export default function SettingsPage() {
       </section>
 
       <section className="stat-card space-y-4">
+        <h2 className="font-semibold">{t('Xizmat haqi (ofitsiant uslugasi)', 'Обслуживание (сервисный сбор)')}</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block text-sm text-zinc-400">{t('Xizmat haqi, % (0 — o‘chirilgan)', 'Сервисный сбор, % (0 — выключен)')}
+            <div className="mt-1 flex items-center gap-2">
+              <input type="number" min="0" max="50" step="0.5" value={draft.serviceRate} onChange={event => set('serviceRate', Number(event.target.value))} className="input-dark" />
+              {[0, 10, 15].map(percent => (
+                <button key={percent} type="button" onClick={() => set('serviceRate', percent)} className={`h-12 shrink-0 rounded-xl border-2 px-4 text-sm font-bold ${draft.serviceRate === percent ? 'border-gold-500 bg-gold-500 text-black' : 'border-white/10 text-zinc-400'}`}>{percent}%</button>
+              ))}
+            </div>
+          </label>
+          <label className="block text-sm text-zinc-400">{t('Nimadan hisoblansin', 'С чего считать')}
+            <select value={draft.serviceBase} onChange={event => set('serviceBase', event.target.value as Settings['serviceBase'])} className="input-dark mt-1">
+              <option value="all">{t('Xona ijarasi + taomlar (butun hisob)', 'Аренда комнаты + заказы (весь счёт)')}</option>
+              <option value="items">{t('Faqat taom va ichimliklardan', 'Только с блюд и напитков')}</option>
+            </select>
+          </label>
+        </div>
+        <p className="text-xs text-zinc-500">{t('Xona hisobiga qo‘shiladi: chekda alohida qator (“Xizmat haqi 10%”) bo‘lib chiqadi va jami summaga kiradi. Chegirmadan keyingi summadan hisoblanadi. Bar savdosiga (xonasiz) qo‘llanmaydi.', 'Добавляется к счёту комнаты: отдельной строкой в чеке («Обслуживание 10%») и входит в итог. Считается от суммы после скидки. На продажи бара (без комнаты) не действует.')}</p>
+      </section>
+
+      <section className="stat-card space-y-4">
         <h2 className="font-semibold">{t('Chek va printer', 'Чек и принтер')}</h2>
         <div>
           <div className="mb-2 text-sm text-zinc-400">{t('Chek qog‘ozi kengligi', 'Ширина чековой ленты')}</div>

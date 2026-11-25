@@ -9,6 +9,10 @@ export interface ReceiptLine {
   quantity: number;
   unitPrice: number;
   total: number;
+  /** Aksiyasiz (eski) narx — faqat unitPrice'dan katta bo'lsa; chekda o'chirib ko'rsatiladi. */
+  oldUnitPrice?: number;
+  /** Menyudan tashqari qo'lda kiritilgan pozitsiya. */
+  custom?: boolean;
 }
 
 export interface ReceiptData {
@@ -45,6 +49,8 @@ export interface ReceiptData {
   itemsAmount: number;
   subtotal: number;
   discount: number;
+  /** Xizmat haqi (ofitsiant uslugasi) — jamiga qo'shilgan. */
+  service?: { rate: number; amount: number };
   total: number;
   payments: Array<{ method: PaymentMethod; amount: number }>;
   paid: number;
@@ -133,10 +139,14 @@ export function buildSessionReceipt({ kind, session, orders, payments, settings,
     customer: session.customerName,
     waiter: session.waiterName,
     cashier: cashierName,
-    lines: bill.lines.map(line => ({ name: lang === 'uz' ? line.name : line.nameRu, quantity: line.quantity, unitPrice: line.unitPrice, total: line.total })),
+    lines: bill.lines.map(line => ({
+      name: lang === 'uz' ? line.name : line.nameRu, quantity: line.quantity, unitPrice: line.unitPrice, total: line.total,
+      ...(line.oldUnitPrice ? { oldUnitPrice: line.oldUnitPrice } : {}), ...(line.custom ? { custom: true } : {}),
+    })),
     itemsAmount: bill.barAmount,
     subtotal: bill.subtotal,
     discount: bill.discount,
+    service: bill.service > 0 ? { rate: bill.serviceRate, amount: bill.service } : undefined,
     total: bill.total,
     payments: kind === 'receipt' ? groupByMethod(thisReceipt.length ? thisReceipt : sessionPayments) : [],
     paid: kind === 'receipt' ? paidUpTo : bill.totalPaid,
@@ -174,7 +184,10 @@ export function buildBarReceipt({ order, payment, payments, settings, users = []
     qrSeed: `${order.id}|${payment.receiptNumber}`,
     qr: loyaltyQr(parts.find(p => p.claimCode)?.claimCode, lang),
     cashier: payment.processedByName ?? users.find(u => u.id === payment.processedBy)?.name,
-    lines: items.map(item => ({ name: lang === 'uz' ? item.productName : item.productNameRu, quantity: item.quantity, unitPrice: item.unitPrice, total: item.totalPrice })),
+    lines: items.map(item => ({
+      name: lang === 'uz' ? item.productName : item.productNameRu, quantity: item.quantity, unitPrice: item.unitPrice, total: item.totalPrice,
+      ...(item.oldUnitPrice && item.oldUnitPrice > item.unitPrice ? { oldUnitPrice: item.oldUnitPrice } : {}), ...(item.custom ? { custom: true } : {}),
+    })),
     itemsAmount,
     subtotal: itemsAmount,
     discount: 0,
@@ -204,17 +217,28 @@ export function printReceiptElement(root: HTMLElement, paperWidthMm: number): vo
 export function buildSampleReceipt(settings: Settings, lang: Language): ReceiptData {
   const price = 150000;
   const now = Date.now();
+  const lines: ReceiptLine[] = [
+    { name: 'Namuna mahsulot', quantity: 4, unitPrice: 25000, total: 100000, oldUnitPrice: 30000 },
+    { name: 'Namuna taom', quantity: 2, unitPrice: 35000, total: 70000 },
+    { name: 'Jarima (namuna)', quantity: 1, unitPrice: 50000, total: 50000, custom: true },
+  ];
+  const itemsAmount = lines.reduce((sum, line) => sum + line.total, 0);
+  const subtotal = 2 * price + itemsAmount;
+  const discount = 20000;
+  const rate = settings.serviceRate > 0 ? settings.serviceRate : 0;
+  const serviceBase = settings.serviceBase === 'items' ? itemsAmount * ((subtotal - discount) / subtotal) : subtotal - discount;
+  const service = rate > 0 ? Math.round((serviceBase * rate) / 100) : 0;
+  const total = subtotal - discount + service;
   return {
     kind: 'receipt', number: 'RCP-00000', printedAt: new Date(now).toISOString(), lang,
     business: business(settings),
     paperWidthMm: settings.paperWidthMm, showQr: settings.showReceiptQr, taxRate: settings.taxRate, qrSeed: 'test-receipt',
     room: { number: 'VIP 01', name: 'Namuna xona', start: new Date(now - 2 * 3600 * 1000).toISOString(), end: new Date(now).toISOString(), bookedHours: 2, overtimeHours: 0, billedHours: 2, hourlyPrice: price, amount: 2 * price },
     customer: 'Sinov', waiter: 'Ofitsiant', cashier: 'Kassir',
-    lines: [
-      { name: 'Namuna mahsulot', quantity: 4, unitPrice: 25000, total: 100000 },
-      { name: 'Namuna taom', quantity: 2, unitPrice: 35000, total: 70000 },
-    ],
-    itemsAmount: 170000, subtotal: 2 * price + 170000, discount: 20000, total: 2 * price + 150000,
-    payments: [{ method: 'cash', amount: 300000 }, { method: 'card', amount: 150000 }], paid: 450000, remaining: 0,
+    lines,
+    itemsAmount, subtotal, discount,
+    service: service > 0 ? { rate, amount: service } : undefined,
+    total,
+    payments: [{ method: 'cash', amount: 300000 }, { method: 'card', amount: total - 300000 }], paid: total, remaining: 0,
   };
 }

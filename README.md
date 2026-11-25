@@ -26,6 +26,13 @@ Bar va VIP karaoke xonalarini boshqarish tizimi: **7 ta xona**, vaqt bo'yicha hi
 - Jami = xona + taomlar − chegirma. To'langan hisob yopilganda muzlatiladi.
 - Ombor buyurtma qo'shilganda kamayadi; admin bekor qilsa qaytariladi.
 
+## Narxlar, "=" tugmasi va xizmat haqi
+
+- **Mahsulot narxlari** (Admin → Mahsulotlar): *kelish narxi* (tannarx), *eski narx* (aksiyasiz, ixtiyoriy) va *yangi narx* — mijoz haqiqatda to'laydigan narx. Eski narx yangisidan katta bo'lsa, menyuda va chekda o'chirib ko'rsatiladi; chekda "Aksiyasiz hisoblaganda / Aksiya bilan / Siz tejadingiz" qatorlari chiqadi. Eski narx buyurtma paytida nusxalanadi — keyin o'zgarsa ham eski cheklar buzilmaydi.
+- **"=" tugmasi** (kassir va admin): menyuda yo'q narsani (jarima, buzilgan buyum va h.k.) nomi va narxi bilan hisobga qo'shadi — xona hisobida (To'lovlar) yoki bar savdosi savatida. Ofitsiant qo'sha olmaydi. Ombor qoldig'iga tegmaydi, faoliyat jurnaliga yoziladi, admin bekor qila oladi.
+- **Xizmat haqi** (Admin → Sozlamalar): foiz (0 — o'chirilgan). Xona hisobiga qo'shiladi, chekda alohida qator bo'lib chiqadi; chegirmadan keyingi summadan (yoki faqat taom/ichimlikdan) hisoblanadi. Bar savdosiga (xonasiz) qo'llanmaydi. Hisobotlarda alohida "Xizmat haqi" qatori bor. Hisob yopilganda foiz va summa muzlatiladi.
+- Sinov: `npx tsx scripts/bill-test.ts` (hisob-kitob, emulatorsiz); `npx tsx scripts/rules-test.ts` (qoidalar, emulator bilan).
+
 ## Chek va shot
 
 - 88 mm (Sozlamalarda 58 / 80 / 88), qora-oq, pastida bezak QR (skanerlanmaydi). Cheklar ichki hisob cheki — fiskal chek emas.

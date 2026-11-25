@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS: Settings = {
   currency: 'UZS',
   currencySymbol: "so'm",
   taxRate: 0,
+  serviceRate: 0,
+  serviceBase: 'all',
   receiptFooter: 'Tashrifingiz uchun rahmat!\nYana kutib qolamiz',
   defaultLanguage: 'uz',
   cleaningDuration: 30,

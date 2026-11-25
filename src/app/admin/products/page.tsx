@@ -13,7 +13,7 @@ import { useT } from '@/lib/hooks';
 import { Product } from '@/types';
 
 interface FormState {
-  name: string; nameRu: string; categoryId: string; salePrice: number; costPrice: number;
+  name: string; nameRu: string; categoryId: string; salePrice: number; costPrice: number; oldPrice: number;
   unit: string; trackStock: boolean; currentStock: number; minStock: number; barcode: string;
 }
 
@@ -21,7 +21,7 @@ export default function AdminProductsPage() {
   const t = useT();
   const { products, categories, language, addProduct, updateProduct, deleteProduct, addToast } = useStore();
   const [deleting, setDeleting] = useState<Product | null>(null);
-  const empty = (): FormState => ({ name: '', nameRu: '', categoryId: categories[0]?.id || '', salePrice: 0, costPrice: 0, unit: 'dona', trackStock: false, currentStock: 0, minStock: 0, barcode: '' });
+  const empty = (): FormState => ({ name: '', nameRu: '', categoryId: categories[0]?.id || '', salePrice: 0, costPrice: 0, oldPrice: 0, unit: 'dona', trackStock: false, currentStock: 0, minStock: 0, barcode: '' });
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(empty);
@@ -38,15 +38,16 @@ export default function AdminProductsPage() {
   const startNew = () => { setEditingId(null); setForm(empty()); setOpen(true); };
   const startEdit = (p: Product) => {
     setEditingId(p.id);
-    setForm({ name: p.name, nameRu: p.nameRu, categoryId: p.categoryId, salePrice: p.salePrice, costPrice: p.costPrice, unit: p.unit, trackStock: isStockTracked(p), currentStock: p.currentStock, minStock: p.minStock, barcode: p.barcode || '' });
+    setForm({ name: p.name, nameRu: p.nameRu, categoryId: p.categoryId, salePrice: p.salePrice, costPrice: p.costPrice, oldPrice: p.oldPrice ?? 0, unit: p.unit, trackStock: isStockTracked(p), currentStock: p.currentStock, minStock: p.minStock, barcode: p.barcode || '' });
     setOpen(true);
   };
 
   const save = () => {
-    if (!form.name.trim() || !form.categoryId || form.salePrice <= 0) { addToast({ type: 'error', title: t('Nom, kategoriya va sotuv narxini kiriting', 'Укажите название, категорию и цену'), message: '' }); return; }
+    if (!form.name.trim() || !form.categoryId || form.salePrice <= 0) { addToast({ type: 'error', title: t('Nom, kategoriya va yangi (sotuv) narxini kiriting', 'Укажите название, категорию и новую (продажную) цену'), message: '' }); return; }
+    if (form.oldPrice > 0 && form.oldPrice <= form.salePrice) { addToast({ type: 'error', title: t('Eski narx yangi narxdan katta bo‘lishi kerak (aksiya yo‘q bo‘lsa — bo‘sh qoldiring)', 'Старая цена должна быть выше новой (если акции нет — оставьте пустой)'), message: '' }); return; }
     const data = {
       name: form.name.trim(), nameRu: form.nameRu.trim() || form.name.trim(), categoryId: form.categoryId,
-      salePrice: form.salePrice, costPrice: form.costPrice, unit: form.unit.trim() || 'dona',
+      salePrice: form.salePrice, costPrice: form.costPrice, oldPrice: form.oldPrice > form.salePrice ? form.oldPrice : 0, unit: form.unit.trim() || 'dona',
       barcode: form.barcode.trim(),
       trackStock: form.trackStock, currentStock: form.trackStock ? form.currentStock : 0, minStock: form.trackStock ? form.minStock : 0,
     };
@@ -81,19 +82,22 @@ export default function AdminProductsPage() {
       )}
       <div className="stat-card overflow-x-auto" hidden={products.length === 0}>
         <table className="data-table">
-          <thead><tr><th>{t('Mahsulot', 'Товар')}</th><th>{t('Kategoriya', 'Категория')}</th><th>{t('Tannarx', 'Себестоимость')}</th><th>{t('Narx', 'Цена')}</th><th>{t('Qoldiq', 'Остаток')}</th><th /></tr></thead>
+          <thead><tr><th>{t('Mahsulot', 'Товар')}</th><th>{t('Kategoriya', 'Категория')}</th><th>{t('Kelish narxi', 'Закупка')}</th><th>{t('Narx (yangi)', 'Цена (новая)')}</th><th>{t('Qoldiq', 'Остаток')}</th><th /></tr></thead>
           <tbody>
             {list.map(product => (
               <tr key={product.id} className={product.isActive ? '' : 'opacity-50'}>
                 <td><div className="font-medium">{language === 'uz' ? product.name : product.nameRu}</div><div className="text-xs text-zinc-500">{product.isActive ? t('Menyuda', 'В меню') : t('Yashirilgan', 'Скрыт')}</div></td>
                 <td>{(() => { const c = categories.find(category => category.id === product.categoryId); return c ? (language === 'uz' ? c.name : c.nameRu) : '—'; })()}</td>
                 <td>{formatCurrency(product.costPrice)}</td>
-                <td className="font-semibold text-gold-400">{formatCurrency(product.salePrice)}</td>
+                <td className="font-semibold text-gold-400">
+                  {product.oldPrice && product.oldPrice > product.salePrice ? <div className="text-xs font-normal text-zinc-500 line-through">{formatCurrency(product.oldPrice)}</div> : null}
+                  {product.salePrice > 0 ? formatCurrency(product.salePrice) : <span className="text-xs font-semibold text-amber-400">{t('narx kiritilmagan', 'цена не задана')}</span>}
+                </td>
                 <td className={isLowStock(product) ? 'text-red-400' : ''}>{isStockTracked(product) ? `${product.currentStock} ${product.unit}` : <span className="text-zinc-600">{t('yuritilmaydi', 'не ведётся')}</span>}</td>
                 <td>
                   <div className="flex justify-end gap-2">
                     <button className="btn-secondary !px-3 !py-1.5 text-sm" onClick={() => startEdit(product)}>{t('Tahrirlash', 'Изменить')}</button>
-                    <button className={`${product.isActive ? 'btn-secondary' : 'btn-gold'} !px-3 !py-1.5 text-sm`} onClick={() => updateProduct(product.id, { isActive: !product.isActive })}>{product.isActive ? t('Yashirish', 'Скрыть') : t('Ko‘rsatish', 'Показать')}</button>
+                    <button className={`${product.isActive ? 'btn-secondary' : 'btn-gold'} !px-3 !py-1.5 text-sm`} onClick={() => { if (!product.isActive && product.salePrice <= 0) { addToast({ type: 'warning', title: t('Avval narxni kiriting (Tahrirlash)', 'Сначала укажите цену (Изменить)'), message: language === 'uz' ? product.name : product.nameRu }); return; } updateProduct(product.id, { isActive: !product.isActive }); }}>{product.isActive ? t('Yashirish', 'Скрыть') : t('Ko‘rsatish', 'Показать')}</button>
                     <button className="rounded-lg p-2 text-red-400 hover:bg-red-500/15" aria-label={t('O‘chirish', 'Удалить')} title={t('O‘chirish', 'Удалить')} onClick={() => setDeleting(product)}><Trash2 className="h-4 w-4" /></button>
                   </div>
                 </td>
@@ -110,8 +114,15 @@ export default function AdminProductsPage() {
           <label className="text-sm text-zinc-400">{t('Nomi (RU)', 'Название (RU)')}<input className="input-dark mt-1" value={form.nameRu} onChange={event => set('nameRu', event.target.value)} /></label>
           <label className="text-sm text-zinc-400">{t('Kategoriya', 'Категория')}<select className="input-dark mt-1" value={form.categoryId} onChange={event => set('categoryId', event.target.value)}>{categories.map(c => <option key={c.id} value={c.id}>{language === 'uz' ? c.name : c.nameRu}</option>)}</select></label>
           <label className="text-sm text-zinc-400">{t('O‘lchov birligi', 'Единица')}<input className="input-dark mt-1" value={form.unit} onChange={event => set('unit', event.target.value)} /></label>
-          <label className="text-sm text-zinc-400">{t('Sotuv narxi', 'Цена продажи')}<MoneyInput className="mt-1" value={form.salePrice} onChange={value => set('salePrice', value)} /></label>
-          <label className="text-sm text-zinc-400">{t('Tannarx', 'Себестоимость')}<MoneyInput className="mt-1" value={form.costPrice} onChange={value => set('costPrice', value)} /></label>
+          <label className="text-sm text-zinc-400">{t('Kelish narxi (tannarx)', 'Закупочная цена (себестоимость)')}<MoneyInput className="mt-1" value={form.costPrice} onChange={value => set('costPrice', value)} /></label>
+          <label className="text-sm text-zinc-400">{t('Eski narx (aksiyasiz, ixtiyoriy)', 'Старая цена (без акции, необязательно)')}<MoneyInput className="mt-1" value={form.oldPrice} onChange={value => set('oldPrice', value)} /></label>
+          <label className="text-sm text-zinc-400 sm:col-span-2">{t('Yangi narx — mijoz to‘laydigan (aksiya) narx', 'Новая цена — которую платит гость (акционная)')}<MoneyInput className="mt-1" value={form.salePrice} onChange={value => set('salePrice', value)} /></label>
+          {form.salePrice > 0 && (
+            <div className="rounded-xl bg-white/[.03] p-3 text-sm sm:col-span-2">
+              <span className={form.salePrice - form.costPrice >= 0 ? 'text-green-400' : 'text-red-400'}>{t('Foyda', 'Прибыль')}: {formatCurrency(form.salePrice - form.costPrice)}{form.costPrice > 0 ? ` (${Math.round(((form.salePrice - form.costPrice) / form.costPrice) * 100)}%)` : ''}</span>
+              {form.oldPrice > form.salePrice && <span className="ml-3 text-amber-300">{t('Chekda', 'В чеке')}: <s>{formatCurrency(form.oldPrice)}</s> → {formatCurrency(form.salePrice)} ({t('aksiya', 'акция')} −{Math.round(((form.oldPrice - form.salePrice) / form.oldPrice) * 100)}%)</span>}
+            </div>
+          )}
           <label className="text-sm text-zinc-400 sm:col-span-2">{t('Shtrix-kod (ixtiyoriy — kassada skanerlash uchun)', 'Штрихкод (необязательно — для сканера на кассе)')}<input className="input-dark mt-1" value={form.barcode} onChange={event => set('barcode', event.target.value)} inputMode="numeric" /></label>
           <label className="flex items-center gap-3 rounded-xl bg-white/[.03] p-3 text-sm sm:col-span-2">
             <input type="checkbox" className="h-5 w-5 accent-amber-500" checked={form.trackStock} onChange={event => set('trackStock', event.target.checked)} />

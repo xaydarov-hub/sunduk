@@ -88,6 +88,46 @@ async function main() {
   check('media o‘qiy oladi, qo‘lda yarata olmaydi', (await allowed(() => getDoc(doc(db, 'loyaltyMedia', 'm1')))) && !(await allowed(() => setDoc(doc(db, 'loyaltyMedia', 'm2'), { type: 'photo', fileId: 'x' }))));
   void uids;
 
+  // ---------------------------------------------------------------- menyudan tashqari pozitsiya ("=" tugmasi)
+  await admin.collection('sessions').doc('S-ACT').set({ id: 'S-ACT', status: 'active', bookedHours: 2, itemsTotal: 100000, paidTotal: 0, discount: 0, roomId: 'r1', roomNumber: 'VIP 01', waiterId: uids.waiter });
+  await admin.collection('sessions').doc('S-PAID').set({ id: 'S-PAID', status: 'paid', bookedHours: 2, itemsTotal: 50000, paidTotal: 50000, discount: 0, roomId: 'r1', roomNumber: 'VIP 01', waiterId: uids.waiter });
+  const customOrder = (id: string, over: Record<string, unknown> = {}, itemOver: Record<string, unknown> = {}) => ({
+    id, orderNumber: id, source: 'room', sessionId: 'S-ACT', roomId: 'r1', roomNumber: 'VIP 01', barStaffId: auth.currentUser!.uid, barStaffName: 'x',
+    items: [{ id: 'i1', productId: 'custom:i1', productName: 'Jarima', productNameRu: 'Jarima', quantity: 1, unitPrice: 50000, totalPrice: 50000, custom: true, ...itemOver }],
+    totalAmount: 50000, status: 'served', customOnly: true, inventoryDeducted: false, createdAt: now, updatedAt: now, servedAt: now, ...over,
+  });
+  /** Tranzaksiya kabi: custom buyurtma + sessiya itemsTotal ni oshirish. */
+  const addCustom = async (id: string, itemsTotal: number, over: Record<string, unknown> = {}, itemOver: Record<string, unknown> = {}, sessionId = 'S-ACT') => {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'orders', id), customOrder(id, { sessionId, ...over }, itemOver));
+    batch.update(doc(db, 'sessions', sessionId), { itemsTotal });
+    await batch.commit();
+  };
+
+  console.log('\n[menyudan tashqari pozitsiya — kassir]');
+  await as('bar');
+  check('custom buyurtma + itemsTotal oshirish ruxsat', await allowed(() => addCustom('CU1', 150000)));
+  check('itemsTotal ni kamaytira olmaydi', !(await allowed(() => updateDoc(doc(db, 'sessions', 'S-ACT'), { itemsTotal: 10 }))));
+  check('customOnly bo‘lmagan xona buyurtmasini yarata olmaydi', !(await allowed(() => addCustom('CU2', 200000, { customOnly: false }))));
+  check('pozitsiya custom bo‘lmasa rad etiladi', !(await allowed(() => addCustom('CU3', 200000, {}, { custom: false }))));
+  check('productId “custom:” bilan boshlanmasa rad etiladi', !(await allowed(() => addCustom('CU4', 200000, {}, { productId: 'prod-1' }))));
+  check('narx 0 bo‘lsa rad etiladi', !(await allowed(() => addCustom('CU5', 200000, {}, { totalPrice: 0 }))));
+  check('boshqa kassir nomidan yarata olmaydi', !(await allowed(() => addCustom('CU6', 200000, { barStaffId: uids.admin }))));
+  check('“new” holatda yarata olmaydi', !(await allowed(() => addCustom('CU7', 200000, { status: 'new' }))));
+  check('ikkita pozitsiyali custom rad etiladi', !(await allowed(() => addCustom('CU8', 200000, { items: [customOrder('x').items[0], customOrder('y').items[0]] }))));
+  check('to‘langan sessiyaga qo‘sha olmaydi', !(await allowed(() => addCustom('CU9', 90000, {}, {}, 'S-PAID'))));
+  check('bar savdosi (oddiy) yaratish hali ham ishlaydi', await allowed(() => setDoc(doc(db, 'orders', 'BAR1'), { id: 'BAR1', source: 'bar', status: 'served', barStaffId: auth.currentUser!.uid, items: [{ id: 'i', productId: 'prod-1', productName: 'x', productNameRu: 'x', quantity: 1, unitPrice: 1000, totalPrice: 1000 }], totalAmount: 1000, createdAt: now, updatedAt: now })));
+
+  console.log('\n[menyudan tashqari pozitsiya — ofitsiant]');
+  await as('waiter');
+  check('custom buyurtma yarata olmaydi', !(await allowed(() => addCustom('CW1', 250000, { barStaffId: auth.currentUser!.uid }))));
+  check('custom buyurtmani o‘qiy oladi', await allowed(() => getDoc(doc(db, 'orders', 'CU1'))));
+  check('itemsTotal ni oshira oladi (oddiy buyurtma) va custom-sessiya summasini kamaytira olmaydi', await allowed(() => updateDoc(doc(db, 'sessions', 'S-ACT'), { itemsTotal: 160000 })) && !(await allowed(() => updateDoc(doc(db, 'sessions', 'S-ACT'), { itemsTotal: 1 }))));
+
+  console.log('\n[menyudan tashqari pozitsiya — admin]');
+  await as('admin');
+  check('custom buyurtma yarata oladi', await allowed(() => addCustom('CA1', 210000, { barStaffId: auth.currentUser!.uid })));
+
   console.log(`\n=== Qoidalar natijasi: ${passed} o‘tdi, ${failed} muvaffaqiyatsiz ===`);
   process.exit(failed ? 1 : 0);
 }

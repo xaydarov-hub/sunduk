@@ -14,6 +14,7 @@ const text = {
     roomSection: 'XONA IJARASI', start: 'Boshlandi', end: 'Tugadi', now: 'Hozir',
     hours: 'soat', extra: 'Qo‘shimcha vaqt', items: 'BUYURTMALAR',
     subtotal: 'Oraliq jami', discount: 'Chegirma', total: 'JAMI', vat: 'shu jumladan QQS',
+    service: 'Xizmat haqi', oldPrice: 'Eski narx', noPromo: 'Aksiyasiz hisoblaganda', withPromo: 'Aksiya bilan', saved: 'Siz tejadingiz!',
     paid: 'To‘langan', paidNow: 'To‘landi', change: 'Qaytim', remaining: 'Qoldiq', pay: 'To‘lov kassada qabul qilinadi',
     thanks: 'Rahmat!',
   },
@@ -23,6 +24,7 @@ const text = {
     roomSection: 'АРЕНДА КОМНАТЫ', start: 'Начало', end: 'Конец', now: 'Сейчас',
     hours: 'ч.', extra: 'Доп. время', items: 'ЗАКАЗЫ',
     subtotal: 'Промежуточный итог', discount: 'Скидка', total: 'ИТОГО', vat: 'в т.ч. НДС',
+    service: 'Обслуживание', oldPrice: 'Старая цена', noPromo: 'Без акции', withPromo: 'По акции', saved: 'Вы сэкономили!',
     paid: 'Оплачено', paidNow: 'Оплата', change: 'Сдача', remaining: 'Остаток', pay: 'Оплата принимается на кассе',
     thanks: 'Спасибо!',
   },
@@ -48,6 +50,11 @@ export function ReceiptSheet({ data }: { data: ReceiptData }) {
   const isReceipt = data.kind === 'receipt';
   const vat = data.taxRate > 0 ? Math.round((data.total * data.taxRate) / (100 + data.taxRate)) : 0;
   const footerLines = data.business.footer.split('\n').filter(line => line.trim());
+  const hasOld = (line: ReceiptData['lines'][number]) => !!line.oldUnitPrice && line.oldUnitPrice > line.unitPrice;
+  // Aksiya: eski narxda hisoblaganda qancha bo'lardi va qancha tejaldi (faqat ko'rsatish uchun)
+  const itemsNow = data.lines.reduce((sum, line) => sum + line.total, 0);
+  const itemsOld = data.lines.reduce((sum, line) => sum + (hasOld(line) ? (line.oldUnitPrice as number) : line.unitPrice) * line.quantity, 0);
+  const savings = itemsOld - itemsNow;
 
   return (
     <div className={`receipt${data.paperWidthMm <= 58 ? ' receipt-narrow' : ''}`} style={{ width: `${data.paperWidthMm}mm` }}>
@@ -102,14 +109,29 @@ export function ReceiptSheet({ data }: { data: ReceiptData }) {
             <div key={`${line.name}-${index}`} className="r-item">
               <div className="r-item-name">{line.name}</div>
               <Row left={`${line.quantity} × ${formatNumber(line.unitPrice)}`} right={formatNumber(line.total)} bold />
+              {hasOld(line) && (
+                <Row
+                  left={<span className="r-small">{t.oldPrice}: <s>{formatNumber(line.oldUnitPrice as number)}</s> × {line.quantity}</span>}
+                  right={<s className="r-small">{formatNumber((line.oldUnitPrice as number) * line.quantity)}</s>}
+                />
+              )}
             </div>
           ))}
+          {savings > 0 && (
+            <>
+              <Sep />
+              <Row left={t.noPromo} right={<s>{formatNumber(itemsOld)}</s>} />
+              <Row left={t.withPromo} right={formatNumber(itemsNow)} />
+              <Row left={t.saved} right={formatNumber(savings)} bold />
+            </>
+          )}
         </>
       )}
 
       <Sep />
-      {(data.discount > 0 || data.room) && <Row left={t.subtotal} right={formatNumber(data.subtotal)} />}
+      {(data.discount > 0 || data.room || data.service) && <Row left={t.subtotal} right={formatNumber(data.subtotal)} />}
       {data.discount > 0 && <Row left={t.discount} right={`-${formatNumber(data.discount)}`} />}
+      {data.service && <Row left={`${t.service} (${data.service.rate}%)`} right={`+${formatNumber(data.service.amount)}`} />}
       <Sep solid />
       <Row left={t.total} right={`${formatNumber(data.total)} ${symbol}`} big />
       {vat > 0 && <Row left={`${t.vat} (${data.taxRate}%)`} right={formatNumber(vat)} />}

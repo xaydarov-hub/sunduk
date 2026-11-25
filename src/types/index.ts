@@ -44,6 +44,9 @@ export interface SessionBillSnapshot {
   roomAmount: number;
   barAmount: number;
   discount: number;
+  /** Xizmat haqi (ofitsiant uslugasi) summasi va foizi — yopilish paytida muzlatiladi. */
+  service?: number;
+  serviceRate?: number;
   total: number;
 }
 
@@ -118,8 +121,12 @@ export interface Product {
   nameRu: string;
   categoryId: string;
   barcode?: string;
+  /** Kelish narxi (tannarx). */
   costPrice: number;
+  /** Yangi narx — mijoz haqiqatda to'laydigan (aksiya) narx. */
   salePrice: number;
+  /** Eski narx (aksiyasiz). salePrice'dan katta bo'lsa chekda o'chirib ko'rsatiladi; 0/bo'sh — aksiya yo'q. */
+  oldPrice?: number;
   unit: string; // dona, litr, kg, etc.
   minStock: number;
   currentStock: number;
@@ -187,6 +194,10 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  /** Buyurtma berilgan paytdagi eski (aksiyasiz) narx — chekda ko'rsatish uchun nusxalanadi. */
+  oldUnitPrice?: number;
+  /** Menyudan tashqari qo'lda kiritilgan pozitsiya (jarima va h.k.): ombor yuritilmaydi. */
+  custom?: boolean;
   notes?: string;
   /** Admin tomonidan bekor qilingan pozitsiya (hisobga kirmaydi). */
   voided?: boolean;
@@ -209,6 +220,8 @@ export interface Order {
   items: OrderItem[];
   totalAmount: number;
   status: OrderStatus;
+  /** Kassir hisobga qo'shgan, faqat menyudan tashqari pozitsiyadan iborat buyurtma (darhol "yetkazilgan"). */
+  customOnly?: boolean;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -355,6 +368,10 @@ export interface Settings {
   currency: string;
   currencySymbol: string;
   taxRate: number;
+  /** Xizmat haqi (ofitsiant uslugasi), % — xona hisobiga qo'shiladi. 0 — o'chirilgan. */
+  serviceRate: number;
+  /** Xizmat haqi nimadan hisoblanadi: 'all' — xona + taomlar, 'items' — faqat taom va ichimliklar. */
+  serviceBase: 'all' | 'items';
   receiptFooter: string;
   defaultLanguage: Language;
   cleaningDuration: number; // minutes after session closes before room becomes available

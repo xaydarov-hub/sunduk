@@ -33,6 +33,7 @@ export default function ReportsPage() {
     const paid = sessions.filter(s => s.status === 'paid' && s.finalBill && s.endTime && inRange(s.endTime));
     const roomRevenue = paid.reduce((sum, s) => sum + (s.finalBill?.roomAmount || 0), 0);
     const itemsRevenue = paid.reduce((sum, s) => sum + (s.finalBill?.barAmount || 0), 0) + pays.filter(p => p.type === 'bar').reduce((sum, p) => sum + p.amount, 0);
+    const serviceRevenue = paid.reduce((sum, s) => sum + (s.finalBill?.service || 0), 0);
 
     // Top mahsulotlar
     const sold = new Map<string, { name: string; nameRu: string; quantity: number; amount: number }>();
@@ -52,7 +53,7 @@ export default function ReportsPage() {
     const cancelledSessions = sessions.filter(s => s.status === 'cancelled' && inRange(s.cancelledAt || s.startTime));
 
     const days = range === 'today' ? 1 : Number(range);
-    return { pays, income, spent, byMethod, roomRevenue, itemsRevenue, top, cancelledOrders, voidedItems, cancelledSessions, chart: generateDailyChartData(pays, days), count: pays.length };
+    return { pays, income, spent, byMethod, roomRevenue, itemsRevenue, serviceRevenue, top, cancelledOrders, voidedItems, cancelledSessions, chart: generateDailyChartData(pays, days), count: pays.length };
   }, [payments, expenses, orders, sessions, range]);
 
   const exportCsv = () => {
@@ -107,6 +108,7 @@ export default function ReportsPage() {
           <h2 className="pt-2 font-semibold">{t('Daromad manbalari', 'Источники дохода')}</h2>
           <div className="flex justify-between rounded-lg bg-white/[.03] p-3 text-sm"><span>{t('Xona ijarasi', 'Аренда комнат')}</span><b>{formatCurrency(report.roomRevenue)}</b></div>
           <div className="flex justify-between rounded-lg bg-white/[.03] p-3 text-sm"><span>{t('Taom va ichimliklar', 'Блюда и напитки')}</span><b>{formatCurrency(report.itemsRevenue)}</b></div>
+          {report.serviceRevenue > 0 && <div className="flex justify-between rounded-lg bg-white/[.03] p-3 text-sm"><span>{t('Xizmat haqi', 'Обслуживание')}</span><b>{formatCurrency(report.serviceRevenue)}</b></div>}
         </section>
       </div>
 

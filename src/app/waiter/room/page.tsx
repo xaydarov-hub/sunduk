@@ -14,7 +14,7 @@ import { SessionClock } from '@/components/shared/SessionClock';
 import { BillSummary } from '@/components/shared/BillSummary';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Modal } from '@/components/ui/Modal';
-import { Price } from '@/components/ui/Price';
+import { ProductPrice } from '@/components/ui/Price';
 import { ReceiptModal } from '@/components/receipt/ReceiptModal';
 
 /**
@@ -189,7 +189,7 @@ function WaiterRoomContent() {
                 <div key={product.id} className={`flex flex-col overflow-hidden rounded-xl border-2 bg-graphite-800 transition-all ${qty > 0 ? 'border-gold-500' : 'border-white/5'} ${sellable ? '' : 'opacity-40'}`}>
                   <button type="button" disabled={!sellable} onClick={() => change(product.id, 1)} className="flex-1 p-3 text-left active:bg-white/5 disabled:cursor-not-allowed">
                     <div className="line-clamp-2 min-h-10 text-sm font-semibold leading-snug">{nameOf(product)}</div>
-                    <div className="mt-2 text-lg font-bold text-gold-400"><Price amount={product.salePrice} /></div>
+                    <div className="mt-2 text-lg font-bold text-gold-400"><ProductPrice product={product} /></div>
                     {!sellable && <div className="text-xs font-semibold text-red-400">{t('Tugagan', 'Нет в наличии')}</div>}
                     {sellable && low && <div className="text-xs text-amber-400">{t('Qoldi', 'Осталось')}: {product.currentStock}</div>}
                   </button>

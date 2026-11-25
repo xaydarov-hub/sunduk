@@ -1,9 +1,25 @@
 import { Order, Payment, RoomSession, Settings } from '@/types';
 import { nowMs } from '@/lib/clock';
 
-export type BillingSettings = Pick<Settings, 'overtimeBilling' | 'overtimeGraceMinutes'>;
+export type BillingSettings = Pick<Settings, 'overtimeBilling' | 'overtimeGraceMinutes'> & Partial<Pick<Settings, 'serviceRate' | 'serviceBase'>>;
 
-export const DEFAULT_BILLING: BillingSettings = { overtimeBilling: true, overtimeGraceMinutes: 10 };
+export const DEFAULT_BILLING: BillingSettings = { overtimeBilling: true, overtimeGraceMinutes: 10, serviceRate: 0, serviceBase: 'all' };
+
+/**
+ * Xizmat haqi (ofitsiant uslugasi): chegirmadan keyingi summadan foiz.
+ * 'items' rejimida faqat taom/ichimlik ulushidan (chegirma xona va taomlarga mutanosib taqsimlanadi).
+ */
+export function calculateService(
+  parts: { roomAmount: number; barAmount: number; discount: number },
+  billing: BillingSettings,
+): { rate: number; amount: number } {
+  const rate = Math.max(0, Math.min(100, Number(billing.serviceRate) || 0));
+  const subtotal = parts.roomAmount + parts.barAmount;
+  if (rate <= 0 || subtotal <= 0) return { rate, amount: 0 };
+  const afterDiscount = Math.max(0, subtotal - parts.discount);
+  const base = billing.serviceBase === 'items' ? parts.barAmount * (afterDiscount / subtotal) : afterDiscount;
+  return { rate, amount: Math.round((base * rate) / 100) };
+}
 
 export interface RoomCharge {
   elapsedSeconds: number;
@@ -69,6 +85,18 @@ export interface BillLine {
   quantity: number;
   unitPrice: number;
   total: number;
+  /** Aksiyasiz (eski) narx — faqat unitPrice'dan katta bo'lsa. */
+  oldUnitPrice?: number;
+  custom?: boolean;
+}
+
+/** Aksiya tufayli tejalgan summa: (eski narx − yangi narx) × soni. */
+export function lineSavings(line: Pick<BillLine, 'quantity' | 'unitPrice' | 'oldUnitPrice'>): number {
+  return line.oldUnitPrice && line.oldUnitPrice > line.unitPrice ? (line.oldUnitPrice - line.unitPrice) * line.quantity : 0;
+}
+
+export function totalSavings(lines: Array<Pick<BillLine, 'quantity' | 'unitPrice' | 'oldUnitPrice'>>): number {
+  return lines.reduce((sum, line) => sum + lineSavings(line), 0);
 }
 
 /** Sessiyadagi bekor qilinmagan buyurtmalar pozitsiyalari (bir xil mahsulot yig'iladi). */
@@ -78,7 +106,8 @@ export function sessionBillLines(sessionId: string, orders: Order[]): BillLine[]
     if (order.sessionId !== sessionId || order.status === 'cancelled' || order.cancelledAt) continue;
     for (const item of order.items) {
       if (item.voided) continue;
-      const key = `${item.productId}@${item.unitPrice}`;
+      const old = item.oldUnitPrice && item.oldUnitPrice > item.unitPrice ? item.oldUnitPrice : undefined;
+      const key = `${item.productId}@${item.unitPrice}@${old ?? 0}`;
       const existing = map.get(key);
       if (existing) {
         existing.quantity += item.quantity;
@@ -92,6 +121,8 @@ export function sessionBillLines(sessionId: string, orders: Order[]): BillLine[]
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           total: item.totalPrice,
+          ...(old ? { oldUnitPrice: old } : {}),
+          ...(item.custom ? { custom: true } : {}),
         });
       }
     }
@@ -104,6 +135,11 @@ export interface CombinedBill extends RoomCharge {
   barAmount: number;
   subtotal: number;
   discount: number;
+  /** Xizmat haqi (ofitsiant uslugasi) summasi va foizi. */
+  service: number;
+  serviceRate: number;
+  /** Aksiya tufayli tejalgan summa (faqat ko'rsatish uchun, jamiga ta'sir qilmaydi). */
+  promoSavings: number;
   total: number;
   totalPaid: number;
   remaining: number;
@@ -132,6 +168,8 @@ export function calculateCombinedBill(
     .filter(payment => payment.sessionId === session.id && payment.status !== 'cancelled')
     .reduce((sum, payment) => sum + payment.amount, 0);
 
+  const promoSavings = totalSavings(lines);
+
   if (session.finalBill) {
     const snap = session.finalBill;
     return {
@@ -143,6 +181,9 @@ export function calculateCombinedBill(
       barAmount: snap.barAmount,
       subtotal: snap.roomAmount + snap.barAmount,
       discount: snap.discount,
+      service: snap.service ?? 0,
+      serviceRate: snap.serviceRate ?? 0,
+      promoSavings,
       total: snap.total,
       totalPaid,
       remaining: Math.max(0, snap.total - totalPaid),
@@ -152,8 +193,9 @@ export function calculateCombinedBill(
   const barAmount = session.itemsTotal ?? lines.reduce((sum, line) => sum + line.total, 0);
   const subtotal = charge.roomAmount + barAmount;
   const discount = Math.min(subtotal, Math.max(0, Math.round(options.discount ?? session.discount ?? 0)));
-  const total = subtotal - discount;
-  return { ...charge, lines, barAmount, subtotal, discount, total, totalPaid, remaining: Math.max(0, total - totalPaid) };
+  const { rate: serviceRate, amount: service } = calculateService({ roomAmount: charge.roomAmount, barAmount, discount }, billing);
+  const total = subtotal - discount + service;
+  return { ...charge, lines, barAmount, subtotal, discount, service, serviceRate, promoSavings, total, totalPaid, remaining: Math.max(0, total - totalPaid) };
 }
 
 /** To'langan/yopilgan hisobdagi yoki to'langan savdodagi buyurtmani o'zgartirib (bekor qilib) bo'lmaydi. */
@@ -173,6 +215,8 @@ export function snapshotBill(bill: CombinedBill): NonNullable<RoomSession['final
     roomAmount: bill.roomAmount,
     barAmount: bill.barAmount,
     discount: bill.discount,
+    service: bill.service,
+    serviceRate: bill.serviceRate,
     total: bill.total,
   };
 }
